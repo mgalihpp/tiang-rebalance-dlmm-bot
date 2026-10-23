@@ -1,0 +1,437 @@
+---
+url: https://www.helius.dev/docs
+last_updated: 2026-10-14
+---
+
+# Helius Documentation
+
+The leading Solana RPC and infrastructure platform. Fast, reliable APIs for building on Solana.
+
+## Getting Started
+
+1. Sign up at https://dashboard.helius.dev
+2. Get your API key
+3. Start building with any of our APIs below
+
+## Getting Started (Agents)
+
+Programmatically create a Helius account and generate an API key.
+
+Guide: https://www.helius.dev/docs/agents/cli.md
+Full instructions: https://dashboard.helius.dev/agents.md
+
+### Step 1: Install CLI
+
+Programmatically create accounts and get API keys via CLI:
+
+```bash
+npm install -g helius-cli
+```
+
+### Step 2: Generate Keypair
+
+```bash
+helius keygen
+```
+
+Output: Creates keypair at `~/.helius/keypair.json`
+
+Returns: Wallet address to fund
+
+### Step 3: Fund Wallet (Autopay only)
+
+Skip this step if paying via the hosted payment link (the default signup mode, finalized with `helius signup --resume`). Autopay (`--pay`) pays USDC from the local keypair, which must be funded first.
+
+For autopay, send to the wallet address from Step 2:
+- Plan USDC (token: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`)
+- ~0.001 SOL
+
+### Step 4: Signup and Get API Key
+
+Two payment modes:
+
+```bash
+# Default: prints a hosted payment link — pay with any wallet in the browser
+helius signup --email you@example.com --first-name Jane --last-name Doe --json
+
+# After paying via the link, finalize the account
+helius signup --resume --json
+
+# Or autopay from the funded local keypair (Step 3); Agent is the default plan
+helius signup --plan agent --pay --email you@example.com --first-name Jane --last-name Doe --json
+```
+
+Note: the default `helius signup` returns a hosted payment URL, not an API key. The success fields below come from `helius signup --resume` or autopay (`--pay`).
+
+#### Success Response from `--resume` or `--pay` (exit code 0):
+
+```json
+{
+  "status": "SUCCESS",
+  "apiKey": "your-api-key-here",
+  "endpoints": {
+    "mainnet": "https://mainnet.helius-rpc.com/?api-key=your-api-key-here",
+    "devnet": "https://devnet.helius-rpc.com/?api-key=your-api-key-here"
+  },
+  "credits": 1000000
+}
+```
+
+Extract API key: `response.apiKey`
+
+Extract RPC URL: `response.endpoints.mainnet` or `response.endpoints.devnet`
+
+## Quick Reference
+
+- Mainnet RPC: https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY
+- Mainnet RPC (Gatekeeper Beta): https://beta.helius-rpc.com/?api-key=YOUR_API_KEY
+- Devnet RPC: https://devnet.helius-rpc.com/?api-key=YOUR_API_KEY
+- Mainnet WSS: wss://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY (LaserStream WebSocket: standard Solana subscriptions plus Helius extensions)
+- Mainnet WSS (Gatekeeper Beta): wss://beta.helius-rpc.com/?api-key=YOUR_API_KEY (LaserStream WebSocket: standard Solana subscriptions plus Helius extensions; also Parsed Streams, Preconfirmations, and preprocessedSubscribe)
+- Devnet WSS: wss://devnet.helius-rpc.com/?api-key=YOUR_API_KEY (LaserStream WebSocket: standard Solana subscriptions plus Helius extensions)
+- Auth: API key via query parameter (?api-key=YOUR_API_KEY)
+- Billing: https://www.helius.dev/docs/billing/llms.txt
+- Dashboard: https://dashboard.helius.dev
+- Status: https://helius.statuspage.io
+
+## API Documentation
+
+### Solana RPC
+Standard Solana JSON-RPC methods with enhanced performance.
+https://www.helius.dev/docs/api-reference/rpc/http/llms.txt
+
+### LaserStream WebSocket
+Helius's WebSocket streaming product. Serves the standard Solana WebSocket subscriptions plus Helius extensions (`transactionSubscribe`, enhanced `accountSubscribe`) for advanced filtering on a single unified endpoint, on the same backend as LaserStream gRPC. Standard methods are available on all plans; Helius extensions require a Developer, Business, or Professional plan.
+https://www.helius.dev/docs/api-reference/rpc/websocket/llms.txt
+
+### Solana DAS API
+Unified interface for all Solana digital assets: NFTs, compressed NFTs, fungible tokens.
+- Overview: https://www.helius.dev/docs/das-api.md
+- API index: https://www.helius.dev/docs/api-reference/das/llms.txt
+
+### Solana Enhanced Transactions API (legacy, maintenance mode)
+Parsed, human-readable transaction data with automatic labeling. Legacy product in maintenance mode — its successor is Parsed Events (below); use Parsed Events for new builds.
+- Parsed Events overview: https://www.helius.dev/docs/parsed-events.md
+- Parsed Events quickstart: https://www.helius.dev/docs/parsed-events/quickstart.md
+- Migration guide: https://www.helius.dev/docs/parsed-events/guides/migrate-from-enhanced-transactions.md
+
+### Helius Parsed Events
+Parse transaction signatures or address history into decoded instructions, transfers, and summaries over REST. Successor to Enhanced Transactions, built on the same IDL catalog (3,600+ programs) as Parsed Streams. Generally available on all plans (including Free) at 10 credits per request; authenticate with your API key.
+Base URL: `https://mainnet.helius-rpc.com`. REST methods: `POST /v1/parsed-events/transactions`, `POST /v1/parsed-events/transaction-history`.
+- Overview: https://www.helius.dev/docs/parsed-events.md
+- Quickstart and REST reference: https://www.helius.dev/docs/parsed-events/quickstart.md
+- API reference: https://www.helius.dev/docs/api-reference/parsed-events/overview.md
+- Response field reference: https://www.helius.dev/docs/parsed-events/parsed-response.md
+- Migrate from Enhanced Transactions: https://www.helius.dev/docs/parsed-events/guides/migrate-from-enhanced-transactions.md
+
+### Helius LaserStream gRPC
+gRPC streaming (`Subscribe` / SDK `subscribe` from `helius-laserstream`) for Solana transaction, account, block, and slot updates with request filters, up to 48-hour historical replay, automatic multi-node failover, and commitment-aware delivery. MCP `heliusStreaming` action `laserstreamSubscribe` generates and validates subscription config and a TypeScript example; it does not open or maintain a live stream. For browser/UI WSS use LaserStream WebSocket; for HTTP callbacks use Webhooks; Preconfirmations and Shred Delivery are separate earlier-lifecycle products.
+- Overview: https://www.helius.dev/docs/laserstream.md
+- API reference overview: https://www.helius.dev/docs/api-reference/laserstream-grpc.md
+- Subscribe: https://www.helius.dev/docs/api-reference/laserstream/grpc/subscribe.md
+- Replay availability (SubscribeReplayInfo): https://www.helius.dev/docs/api-reference/laserstream/grpc/subscribereplayinfo.md
+- Clients: https://www.helius.dev/docs/laserstream/clients.md
+- API index: https://www.helius.dev/docs/api-reference/laserstream/grpc/llms.txt
+
+### Helius Parsed Streams
+WebSocket service that streams decoded Solana transactions with server-side filtering by program, account, and instruction name. Instructions arrive decoded through Helius's IDL catalog (3,600+ programs): named arguments, named accounts, inner (CPI) instructions included. Successor to Enhanced Transaction Webhooks. Generally available on all plans (including Free) at 1 credit per delivered event, the same rate as webhooks; authenticate with your API key.
+Endpoint: `wss://beta.helius-rpc.com/?api-key=<key>` (the Gatekeeper host). Exception: describeProgram is currently only available on `wss://fs-beta.helius-rpc.com/?api-key=<key>`.
+- Overview: https://www.helius.dev/docs/parsed-streams.md
+- Quickstart and protocol reference: https://www.helius.dev/docs/parsed-streams/quickstart.md
+- describeProgram (program discovery): https://www.helius.dev/docs/api-reference/parsed-streams/describeprogram.md
+
+### Helius Sender
+Lowest latency transaction sending service. Accepts the same `sendTransaction` request as standard RPC. No credits consumed; a SOL tip is required per transaction. Two tiers: Sender Max submits across all pathways (Helius, Jito, Harmonic, Rakurai, etc.) simultaneously and supports transactions and bundles (minimum tip 0.001 SOL); Sender SWQOS-only routes through a single cost-optimized SWQOS path (minimum tip 0.000005 SOL).
+- Overview and quickstart: https://www.helius.dev/docs/sending-transactions/sender.md
+- Choosing how to send: https://www.helius.dev/docs/sending-transactions/overview.md
+- Sender Max: https://www.helius.dev/docs/sending-transactions/sender-max.md
+- Sender SWQOS-Only: https://www.helius.dev/docs/sending-transactions/sender-swqos-only.md
+- API reference: https://www.helius.dev/docs/api-reference/sender/llms.txt
+
+### MEV Protect
+Opt-in routing (`mev-protect=true` query parameter) that avoids validators statistically linked to sandwich attacks. Works with basic sendTransaction, basic sendBundle, Sender Max, and Sender SWQOS-only.
+https://www.helius.dev/docs/sending-transactions/mev-protect.md
+
+### Helius Preconfirmations
+Stream Solana transactions at the lowest possible latency — before they are collected into entries and shredded. The stream merges two sources that emit at different points: Helius preconfirmations are emitted the instant the leader executes a transaction and carry its execution status, while Jito BAM (Block Assembly Marketplace) preconfirmations are emitted when the validator commits to executing a transaction, before it runs. Subscribe via `preconfSubscribe` WebSocket on the Gatekeeper endpoint (`wss://beta.helius-rpc.com`); use `includeSource: ["helius"]` or `includeSource: ["bam"]` to select one source. BAM messages always carry `tx_index = 0` and `status = 2` (unknown), the payload has no source field, and the same signature can arrive from both sources. Transaction bytes are in Solana wire format (legacy, v0, or v1); decode with a v1-aware parser such as `agave-transaction-view` (Rust), not `bincode`. Available on all paid plans (Developer, Business, Professional, and Enterprise); Free is excluded. Slots with zero delivered messages cost zero credits, even when the slot has preconfirmation coverage. When a slot delivers at least one message, each open `preconfSubscribe` subscription is billed the greater of 300 credits or 10 credits per delivered message. Uncovered slots cost zero. Therefore, 0, 10, 30, and 100 delivered messages bill 0, 300, 300, and 1,000 credits respectively.
+- Overview: https://www.helius.dev/docs/pre-confirmations/overview.md
+- preconfSubscribe guide: https://www.helius.dev/docs/pre-confirmations/preconf-subscribe.md
+- preconfSubscribe API reference: https://www.helius.dev/docs/api-reference/pre-confirmations/preconfsubscribe.md
+- preconfUnsubscribe API reference: https://www.helius.dev/docs/api-reference/pre-confirmations/preconfunsubscribe.md
+- getPreConfCoverage API reference (combined Helius and BAM stake coverage): https://www.helius.dev/docs/api-reference/pre-confirmations/getpreconfcoverage.md
+
+### Helius Shred Delivery
+Self-serve raw Solana shreds via UDP. $1,000 USD/month per IP ($800 USD/month per IP on Pro plans).
+https://www.helius.dev/docs/shred-delivery/llms.txt
+
+### Helius Preprocessed Transactions
+Pre-execution Solana transactions delivered before `processed` commitment — aggregated primarily from shred decoding, supplemented by preconfirmation signals (the dedicated Preconfirmations product remains the earliest access to those). Streamed via the `preprocessedSubscribe` WebSocket on `wss://beta.helius-rpc.com` (public beta, all paid plans, 0.1 credits per message).
+- Overview: https://www.helius.dev/docs/preprocessed-transactions/overview.md
+- preprocessedSubscribe guide: https://www.helius.dev/docs/preprocessed-transactions/preprocessed-subscribe.md
+
+### Helius Priority Fee API
+Optimal priority fee estimation for transaction landing.
+- Overview: https://www.helius.dev/docs/priority-fee-api.md
+- API index: https://www.helius.dev/docs/api-reference/priority-fee/llms.txt
+
+### Dedicated Nodes
+Private Solana nodes with no rate limits, no credits, and full Yellowstone gRPC support.
+https://www.helius.dev/docs/dedicated-nodes/llms.txt
+
+### Solana Webhooks
+Real-time HTTP POST notifications for blockchain events.
+https://www.helius.dev/docs/api-reference/webhooks/llms.txt
+
+### Helius Wallet API
+Query Solana wallet balances, transaction history, transfers, identities, and funding sources with structured REST endpoints.
+https://www.helius.dev/docs/api-reference/wallet-api/llms.txt
+
+### ZK Compression API
+Compressed account and token operations.
+https://www.helius.dev/docs/api-reference/zk-compression/llms.txt
+
+### Helius Wallet-as-a-Service (WaaS) — beta
+Non-custodial embedded Solana wallets for your app via the `helius-wallet-kit` npm package (React). Users sign in with a passkey or email one-time code by default (SMS and external-wallet sign-in can be enabled; social logins coming soon) — no seed phrases; keys are secured by Turnkey and signing happens client-side. Paid plans only. Billed 200 credits per signature (`signMessage`, `signTransaction`, `signAndSendTransaction`); no per-wallet or per-MAU fee. Not the Wallet API (that is a read-only REST data API).
+- Section index: https://www.helius.dev/docs/waas/llms.txt
+- Overview: https://www.helius.dev/docs/waas/overview.md
+- Quickstart: https://www.helius.dev/docs/waas/quickstart.md
+- Migrating from Privy: https://www.helius.dev/docs/waas/migrating-from-privy.md
+
+### Helius Privacy: Solana Rings (beta, devnet only)
+Programmable privacy for Solana transfers, secured by zero-knowledge proofs and settled natively on Solana (no sequencer or sidechain). Confidential transfers keep the asset and amount private while sender and recipient stay public; anonymous Custom Rings hide all four (asset, amount, sender, and recipient). Self-custodial: in the permissionless Default Ring, spending always requires the owner's signature (Custom Ring policy can add co-signers, freeze/thaw authorities, or a permanent delegate). Currently in beta on devnet only — mainnet has not launched and programs are under audit. SDKs: `@heliuslabs/zolana` (TypeScript), `zolana-client` (Rust).
+- Section index: https://www.helius.dev/docs/privacy/llms.txt
+- Overview: https://www.helius.dev/docs/privacy.md
+- Concepts Overview: https://www.helius.dev/docs/privacy/concepts/overview.md
+- Architecture (wallets, RPC services, programs, and proving): https://www.helius.dev/docs/privacy/concepts/architecture.md
+- Private State and UTXOs (balances, spending, and concurrency): https://www.helius.dev/docs/privacy/concepts/utxo.md
+- Shielded Keypair and Encryption (keys and decryption modes): https://www.helius.dev/docs/privacy/concepts/encryption.md
+- Deposit guide: https://www.helius.dev/docs/privacy/guides/deposit.md
+- Transfer guide: https://www.helius.dev/docs/privacy/guides/transfer.md
+- Withdraw guide: https://www.helius.dev/docs/privacy/guides/withdraw.md
+- Read a private balance: https://www.helius.dev/docs/privacy/guides/read-balance.md
+- Read private history: https://www.helius.dev/docs/privacy/guides/read-history.md
+- Endpoints: https://www.helius.dev/docs/privacy/endpoints.md
+- SDK: https://www.helius.dev/docs/privacy/sdk.md
+
+### Gatekeeper (beta)
+Helius's edge gateway that removes Cloudflare from the critical path — response-time improvements range from tens to hundreds of milliseconds. Drop-in URL swap to `beta.helius-rpc.com`: same API key, same methods, identical responses, same pricing. Mainnet only for now. Serves all standard Solana RPC methods, Helius RPC extensions (e.g. getTransactionsForAddress), LaserStream WebSocket subscriptions, DAS API, ZK Compression (Photon), Priority Fee API, and Enhanced Transactions API — but not LaserStream gRPC. Note: the `beta.` hostname refers to the Gatekeeper rollout, not to the maturity of the products it serves. Parsed Streams, Preconfirmations, and the recommended `preprocessedSubscribe` WebSocket are served exclusively from `beta.helius-rpc.com` (a deprecated Preprocessed gRPC feed remains on the LaserStream endpoints).
+- Section index: https://www.helius.dev/docs/gatekeeper/llms.txt
+- Overview: https://www.helius.dev/docs/gatekeeper/overview.md
+- Migration guide: https://www.helius.dev/docs/gatekeeper/migration-guide.md
+
+### Helius Admin API
+Programmatic access to project usage and billing data via API key authentication: credit usage, subscription details, and per-service request counts for the current credit cycle.
+- Overview: https://www.helius.dev/docs/api-reference/admin.md
+- Get project usage: https://www.helius.dev/docs/api-reference/admin/get-project-usage.md
+
+## Common Use Cases
+
+| I'm building... | Use these Helius products |
+|-----------------|---------------------------|
+| Trading bot | Helius Sender (fast tx submission) + Priority Fee API + LaserStream (real-time prices) |
+| Wallet app | DAS API (getAssetsByOwner) + getTransactionsForAddress (paginated history; set `filters.tokenAccounts`, e.g. `"balanceChanged"`, for token-account activity — post-Dec-2022 only) or Wallet API for REST endpoints |
+| App with built-in wallets (no seed phrases) | WaaS embedded wallets (`helius-wallet-kit`) + Helius Sender (transaction landing) |
+| Private payments | Helius Privacy (beta, devnet only) |
+| NFT marketplace | DAS API (searchAssets, getAssetsByGroup) + Webhooks (track sales/listings) |
+| Token launcher | Helius Sender + Priority Fee API + Webhooks (monitor new token) |
+| Analytics dashboard | Parsed Events + getTransactionsForAddress (historical data) |
+| DeFi protocol | LaserStream (real-time account updates) + Helius Sender + Priority Fee API |
+| Sniper/MEV bot | Preconfirmations (earliest transaction signal) + Shred Delivery (raw shreds) + LaserStream gRPC (processed confirmation) + Helius Sender (staked connections) |
+| Portfolio tracker | DAS API (getAssetsByOwner with showFungible) + Parsed Events |
+| Airdrop tool | AirShip (95% cheaper with ZK compression) |
+| Jupiter/swap integration | Helius RPC + Helius Sender for transaction submission |
+
+## Which API should I use?
+
+| Need | Use |
+|------|-----|
+| Get wallet NFTs and tokens | DAS API |
+| Parse transaction history | Parsed Events (Enhanced Transactions is legacy/maintenance mode) |
+| Real-time parsed events (decoded transactions over WebSocket) | Parsed Streams |
+| Real-time event notifications (HTTP) | Webhooks |
+| Real-time streaming (WebSocket) | LaserStream WebSocket |
+| Earliest transaction signal (before shreds) | Preconfirmations (`preconfSubscribe` WebSocket) |
+| Ultra low-latency Solana shreds (unprocessed) | Shred Delivery (raw shreds via dashboard) |
+| Lowest latency processed streaming | LaserStream gRPC |
+| Standard Solana RPC calls | RPC |
+| Estimate priority fees | Priority Fee API |
+| Work with compressed accounts | ZK Compression |
+| Simple REST endpoints for querying Solana wallet data | Wallet API |
+| Embedded non-custodial wallets in your app | WaaS (`helius-wallet-kit`) |
+| Confidential or private transfers | Helius Privacy (beta, devnet only) |
+| Lower latency on existing RPC/API calls | Gatekeeper endpoints (`beta.helius-rpc.com`) |
+| Visually explore transactions, tokens, wallets | Orb Explorer (https://orbmarkets.io) |
+
+## Don't Confuse These
+
+| If you want to... | Use this | NOT this | Why |
+|-------------------|----------|----------|-----|
+| Get wallet's NFTs and tokens | `getAssetsByOwner` (DAS API; method-specific `showFungible` for SPL/Token-2022) | `getTokenAccountsByOwner` | `getTokenAccountsByOwner` returns raw accounts, not token metadata; use paginated DAS for NFT inventory — Wallet API Balances is not a complete NFT inventory |
+| Get filtered history or backfill (incl. token-account activity) | `getTransactionsForAddress` | `getSignaturesForAddress` | Use `transactionDetails: "full"` only when raw tx + metadata are needed; `filters.tokenAccounts` defaults to `none` (`balanceChanged` for balance-changing ATA activity) |
+| Get wallet-centric activity with per-transaction balance changes | Wallet API History (beta) | `getTransactionsForAddress` | Wallet-oriented REST response with balance changes — not GTFA filtered backfill or raw full transaction objects |
+| Get transfer-only history for a wallet | `getTransfersByAddress` | `getTransactionsForAddress` | Transfer-level SOL/token records, not full transaction objects |
+| Get parsed human-readable history (new builds) | Parsed Events | Enhanced Transactions (legacy) | Enhanced is in maintenance mode; GTFA is not a drop-in Enhanced response format |
+| Get transaction history for cNFTs | `getSignaturesForAsset` (DAS API) | `getSignaturesForAddress` | `getSignaturesForAddress` doesn't work for compressed NFTs |
+| Stream real-time data (choose by delivery model) | LaserStream WebSocket (WSS/browser), LaserStream gRPC (backend + replay), or Webhooks (HTTP callbacks) | Polling or Yellowstone gRPC on dedicated nodes for greenfield work | Match the delivery model; do not default every new project to gRPC |
+| Stream over gRPC with replay / multi-node failover | LaserStream gRPC `Subscribe` (SDK `subscribe`) | LaserStream WebSocket `transactionSubscribe` | WebSocket is for persistent WSS/browser/UI; MCP `laserstreamSubscribe` only generates config/examples |
+| Submit a signed transaction with the lowest latency | Helius Sender (multi-path routing across all pathways: Helius, Jito, Harmonic, Rakurai, etc.) | Standard `sendTransaction` | Standard `sendTransaction` submits through a single path |
+| Get priority fee estimates | `getPriorityFeeEstimate` | `getRecentPrioritizationFees` | `getRecentPrioritizationFees` requires manual calculation |
+| Search NFTs by collection | DAS API `getAssetsByGroup` or `searchAssets` | `getProgramAccounts` | `getProgramAccounts` is expensive, slow, and data could be unindexed |
+| Get real-time data | LaserStream WebSocket or LaserStream gRPC | Polling for real-time data | Polling is inefficient, higher latency, uses credits |
+| Get the earliest transaction signal | Preconfirmations (`preconfSubscribe`) | LaserStream gRPC at `processed` | Preconfirmations deliver transactions before shreds — Helius at leader execution (with status), BAM at commit-to-execute; LaserStream delivers data with commitment guarantees |
+| Get ultra low-latency, unprocessed transaction data | Shred Delivery (raw shreds) | LaserStream gRPC at `processed` | Shreds arrive before execution; LaserStream delivers post-execution data with commitment guarantees |
+| Add embedded wallets users control | WaaS (`helius-wallet-kit` SDK) | Wallet API | WaaS creates and signs with non-custodial embedded wallets; the Wallet API is a read-only REST data API for querying any wallet |
+| Cut RPC/WebSocket latency | Gatekeeper endpoint swap (`beta.helius-rpc.com`) | A new API integration | Gatekeeper serves identical methods and responses with the same API key — only the URL changes |
+
+Wallet API Balances (beta portfolio summaries): tokens are limited to 100 per page; NFTs are excluded unless `showNfts=true` (at most 100 NFTs on the first page only); `pricePerToken` and `usdValue` may be null; prices are hourly estimates, not real-time market prices; `totalUsdValue` covers the current page, not the full paginated portfolio; each request costs 100 credits. Use paginated DAS for complete NFT inventory and metadata.
+
+## Key Concepts
+
+| Term | Definition |
+|------|------------|
+| DAS (Digital Asset Standard) | Standardized API for querying NFTs, tokens, and compressed assets with a unified interface |
+| cNFT (Compressed NFT) | NFTs stored in merkle trees instead of individual accounts; 1000x cheaper to mint |
+| ZK Compression | Technology to reduce on-chain storage costs by 98% using zero-knowledge proofs |
+| Helius Sender | Ultra low latency transaction submission service; the Sender Max tier submits a transaction across all pathways (Helius, Jito, Harmonic, Rakurai, etc.) simultaneously |
+| LaserStream | Helius's managed gRPC streaming service with historical replay and auto-reconnection. Wire-compatible with the Yellowstone gRPC protocol |
+| Yellowstone gRPC | Open-source Solana Geyser plugin protocol for streaming. LaserStream is wire-compatible with it; raw Yellowstone is also available on Helius dedicated nodes |
+| Priority Fee | Additional fee (in microlamports) to prioritize transaction inclusion in blocks |
+| Staked Connections | Direct connections to validators through stake-weighted routing for faster and more reliable transaction landing |
+| Associated Token Account (ATA) | The standard token account address derived from a wallet + mint; holds tokens on behalf of wallet |
+| Preconfirmations | Transactions streamed before shreds — Helius at leader execution (with status), BAM at commit-to-execute — Helius's lowest-latency transaction signal |
+| Commitment Level | Transaction finality: `processed` (fastest, may revert), `confirmed` (basically final), `finalized` (guaranteed) |
+| Gatekeeper | Helius edge gateway (`beta.helius-rpc.com`) that bypasses Cloudflare for lower latency; same APIs, keys, and pricing |
+| WaaS (Wallet-as-a-Service) | Embedded non-custodial Solana wallets via `helius-wallet-kit`, secured by Turnkey; billed 200 credits per signature |
+| Solana Rings | Helius Privacy protocol: confidential or anonymous transfers secured by ZK proofs, settled natively on Solana (beta, devnet only) |
+
+## Pre-Execution Latency Stack
+
+From earliest to latest transaction signal:
+
+1. **Preconfirmations** — transactions before shreds (Helius at leader execution, BAM at commit-to-execute). WebSocket `preconfSubscribe`. All paid plans; 10 credits per delivered message. Zero-message slots cost zero; slots with one or more delivered messages have a 300-credit minimum per subscription.
+2. **Raw shreds (UDP)** — unprocessed shred packets. $1,000/month per IP ($800/month on Pro plans).
+3. **`preprocessedSubscribe` (WebSocket)** — decoded pre-execution transactions (~8 ms ahead of `processed`) over WebSocket with account filtering, served from `wss://beta.helius-rpc.com`. All paid plans; public beta; 0.1 credits per message (one message per delivered transaction).
+4. **LaserStream gRPC at `processed`** — post-execution with commitment guarantees.
+
+## Guides
+
+All-guides index: https://www.helius.dev/docs/guides/overview.md
+
+### Getting Started
+- Quickstart: https://www.helius.dev/docs/quickstart.md
+- Getting Data: https://www.helius.dev/docs/getting-data.md
+- Authentication: https://www.helius.dev/docs/api-reference/authentication.md
+- Endpoints: https://www.helius.dev/docs/api-reference/endpoints.md
+- Get Devnet SOL: https://www.helius.dev/docs/rpc/devnet-sol.md
+- Protect Your API Keys: https://www.helius.dev/docs/rpc/protect-your-keys.md
+
+### RPC & Historical Data
+- getTransactionsForAddress (filtered, paginated transaction history for any address; opt-in token-account activity via `filters.tokenAccounts`): https://www.helius.dev/docs/rpc/gettransactionsforaddress.md
+- getTransfersByAddress (transfer-level history): https://www.helius.dev/docs/rpc/gettransfersbyaddress.md
+- Migrate to getTransactionsForAddress: https://www.helius.dev/docs/rpc/migrate-to-gettransactionsforaddress.md
+- Transaction v1 support (set maxSupportedTransactionVersion: 1, SDK minimums, priorityFee in transactionConfig): https://www.helius.dev/docs/rpc/transaction-v1.md
+- Historical Data overview: https://www.helius.dev/docs/rpc/historical-data.md
+- Account data: https://www.helius.dev/docs/rpc/accounts.md
+- Block & network methods: https://www.helius.dev/docs/rpc/other-methods.md
+- How to Index Solana Data: https://www.helius.dev/docs/rpc/how-to-index-solana-data.md
+- RPC optimization (performance & cost): https://www.helius.dev/docs/rpc/optimization-techniques.md
+- Per-method RPC guides index (50 how-to guides): https://www.helius.dev/docs/rpc/guides/overview.md
+
+### Data Streaming
+- Data Streaming overview (choosing a delivery model): https://www.helius.dev/docs/data-streaming.md
+- Data Streaming quickstart: https://www.helius.dev/docs/data-streaming/quickstart.md
+- LaserStream WebSocket overview: https://www.helius.dev/docs/rpc/websocket.md
+- LaserStream gRPC quickstart: https://www.helius.dev/docs/laserstream/grpc.md
+- Historical replay (backfill): https://www.helius.dev/docs/laserstream/historical-replay.md
+- Delivery guarantees: https://www.helius.dev/docs/laserstream/delivery-guarantees.md
+- Large-scale account filtering (compressed filters): https://www.helius.dev/docs/laserstream/cuckoo-filters.md
+- Token account (ATA) filtering: https://www.helius.dev/docs/laserstream/token-account-filtering.md
+- Token mint filtering (matchMints, subscribe by mint): https://www.helius.dev/docs/laserstream/mint-filtering.md
+- Transaction monitoring: https://www.helius.dev/docs/laserstream/guides/transaction-monitoring.md
+- Account subscription: https://www.helius.dev/docs/laserstream/guides/account-subscription.md
+- Slot & block monitoring: https://www.helius.dev/docs/laserstream/guides/slot-and-block-monitoring.md
+- Stream Pump AMM data: https://www.helius.dev/docs/laserstream/guides/stream-pump-amm-data.md
+- LaserStream vs Dedicated Nodes: https://www.helius.dev/docs/laserstream/laserstream-vs-dedicated-nodes.md
+- Preconfirmations: https://www.helius.dev/docs/pre-confirmations/overview.md
+
+### Sending Transactions
+- Sender Max: https://www.helius.dev/docs/sending-transactions/sender-max.md
+- Sender SWQOS-Only: https://www.helius.dev/docs/sending-transactions/sender-swqos-only.md
+- Send transactions (basic): https://www.helius.dev/docs/sending-transactions/send-manually.md
+- Send bundles (basic): https://www.helius.dev/docs/sending-transactions/send-bundle.md
+- Optimizing transactions: https://www.helius.dev/docs/sending-transactions/optimizing-transactions.md
+- Backrun rebates (earn SOL): https://www.helius.dev/docs/sending-transactions/backrun-rebates.md
+- Jupiter Swap API via Sender: https://www.helius.dev/docs/sending-transactions/jupiter-swap-api-via-sender.md
+
+### Assets & Wallet Data
+- Get NFTs (assets, collections, proofs): https://www.helius.dev/docs/das/get-nfts.md
+- Get SPL tokens: https://www.helius.dev/docs/das/get-tokens.md
+- Search assets: https://www.helius.dev/docs/das/search.md
+- DAS pagination: https://www.helius.dev/docs/das/pagination.md
+- Fungible token extension: https://www.helius.dev/docs/das/fungible-token-extension.md
+- Wallet API overview: https://www.helius.dev/docs/wallet-api/overview.md
+- Wallet balances: https://www.helius.dev/docs/wallet-api/balances.md
+- Historical balance at a timestamp/slot: https://www.helius.dev/docs/wallet-api/balance-at.md
+- Wallet transaction history: https://www.helius.dev/docs/wallet-api/history.md
+- Wallet transfers: https://www.helius.dev/docs/wallet-api/transfers.md
+- Wallet identity lookup: https://www.helius.dev/docs/wallet-api/identity.md
+- Wallet funding source: https://www.helius.dev/docs/wallet-api/funded-by.md
+
+### Webhooks & Priority Fees
+- Webhooks quickstart: https://www.helius.dev/docs/webhooks/quickstart.md
+- Webhook transaction types: https://www.helius.dev/docs/webhooks/transaction-types.md
+- Priority fees via account keys: https://www.helius.dev/docs/priority-fee/estimating-fees-using-account-keys.md
+- Priority fees via serialized transaction: https://www.helius.dev/docs/priority-fee/estimating-fees-using-serialized-transaction.md
+
+### Trading & Staking
+- Trading on Solana with Helius: https://www.helius.dev/docs/trading/overview.md
+- Programmatic staking with the Helius SDK (0% commission validator): https://www.helius.dev/docs/staking/how-to-stake-with-helius-programmatically.md
+
+### Billing
+- Autoscaling: https://www.helius.dev/docs/billing/additional-credits.md
+- Pay with Crypto: https://www.helius.dev/docs/billing/pay-with-crypto.md
+- Unpaid Invoices: https://www.helius.dev/docs/billing/unpaid-invoices.md
+
+## SDKs
+Official SDKs that wrap all Helius APIs with type-safe methods and built-in error handling.
+
+- TypeScript: https://github.com/helius-labs/helius-sdk
+- Rust: https://github.com/helius-labs/helius-rust-sdk
+- SDK Overview: https://www.helius.dev/docs/sdks.md
+- TypeScript SDK Guide: https://www.helius.dev/docs/sdks/typescript.md
+- Rust SDK Guide: https://www.helius.dev/docs/sdks/rust.md
+- Rust SDK Docs: https://docs.rs/helius/latest/helius/
+
+## Developer Tools
+
+- Helius MCP: https://www.helius.dev/docs/agents/mcp.md
+- Orb Explorer — Solana block explorer by Helius (transactions, tokens, wallets, programs/IDLs, validators): https://orbmarkets.io
+- Orb tutorials: https://www.helius.dev/docs/orb.md
+- Orb docs index: https://www.helius.dev/docs/orb/llms.txt
+- AirShip: https://airship.helius.dev
+
+## Agents
+AI agent documentation, including programmatic signup, API guidance, MCP skills, and SDK usage.
+- Agents Index: https://www.helius.dev/docs/agents/llms.txt
+- Agents Overview: https://www.helius.dev/docs/agents/overview.md
+- Helius CLI: https://www.helius.dev/docs/agents/cli.md
+- Helius MCP: https://www.helius.dev/docs/agents/mcp.md
+- Build Skill: https://www.helius.dev/docs/agents/skills/build.md
+- Phantom Skill: https://www.helius.dev/docs/agents/skills/phantom.md
+- Jupiter DeFi Skill: https://www.helius.dev/docs/agents/skills/jupiter.md
+- DFlow Trading Skill: https://www.helius.dev/docs/agents/skills/dflow.md
+- OKX Trading & Intelligence Skill: https://www.helius.dev/docs/agents/skills/okx.md
+- SVM Skill: https://www.helius.dev/docs/agents/skills/svm.md
+- Claude Code Plugin: https://www.helius.dev/docs/agents/claude-code-plugin.md
+- TypeScript SDK for Agents: https://www.helius.dev/docs/agents/typescript-sdk.md
+- Rust SDK for Agents: https://www.helius.dev/docs/agents/rust-sdk.md
+
+## Resources
+- Dashboard: https://dashboard.helius.dev
+- Status: https://helius.statuspage.io
+- Discord: https://discord.com/invite/6GXdee3gBj
+- Support: https://dashboard.helius.dev/support
+- FAQs: https://www.helius.dev/docs/faqs.md (per-product pages at https://www.helius.dev/docs/faqs/{product}.md, where {product} is one of: rpc, laserstream, sender, webhooks, websockets, das-api, accounts, billing, dedicated-nodes, priority-fee, zk-compression, enhanced-transactions, preprocessed-transactions)
+- Error Codes: https://www.helius.dev/docs/faqs/error-codes.md
+- Glossary: https://www.helius.dev/docs/glossary.md
+- RPC Benchmarks: https://www.helius.dev/benchmarks

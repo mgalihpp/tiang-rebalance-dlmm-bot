@@ -1,0 +1,35 @@
+{
+  "name": "dlmm-tight-range-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.1",
+  "engines": {
+    "node": ">=22",
+    "bun": ">=1.2"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "bun src/main.ts",
+    "start": "bun src/main.ts",
+    "once": "bun src/main.ts --once",
+    "probe": "bun src/main.ts --probe"
+  },
+  "dependencies": {
+    "@meteora-ag/dlmm": "^1.9.14",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/web3.js": "^1.98.0",
+    "bn.js": "^5.2.1",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.7",
+    "effect": "^3.19.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.6",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
