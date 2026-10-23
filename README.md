@@ -1,3 +1,15 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="Auto-rebalance DLMM bot for Solana and Meteora" width="100%">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun&logoColor=000000" alt="Bun">
+  <img src="https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=ffffff" alt="TypeScript">
+  <img src="https://img.shields.io/badge/effects-Effect-5B4FE9" alt="Effect">
+  <img src="https://img.shields.io/badge/chain-Solana-9945FF?logo=solana&logoColor=ffffff" alt="Solana">
+  <img src="https://img.shields.io/badge/DEX-Meteora%20DLMM-00B8D9" alt="Meteora DLMM">
+</p>
+
 # DLMM tight-range bot
 
 Bot untuk satu pool Meteora DLMM. Dia membuka posisi selebar 1 atau 2 bin di sekitar
