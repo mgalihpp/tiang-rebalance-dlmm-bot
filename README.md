@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/DEX-Meteora%20DLMM-00B8D9" alt="Meteora DLMM">
 </p>
 
-# DLMM tight-range bot
+# Meteora DLMM rebalancer
 
 This bot manages one Meteora DLMM pool. It opens a position that spans one or two
 bins around the active bin. When the price moves outside the range, it closes the
