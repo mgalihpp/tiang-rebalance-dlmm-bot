@@ -133,7 +133,7 @@ describe("decide", () => {
       expect(d.range).toEqual({ lower: 100, upper: 102 });
       expect(d.depositX).toBe(1_000_000_000n);
       expect(d.depositY).toBe(0n);
-      expect(d.singleSidedX).toBe(false);
+      expect(d.singleSidedX).toBe(true);
     }
   });
 
@@ -153,6 +153,7 @@ describe("decide", () => {
       expect(d.depositX).toBe(100_000_000_000n);
       expect(d.depositY).toBe(0n);
       expect(d.range).toEqual({ lower: 100, upper: 101 });
+      expect(d.singleSidedX).toBe(true);
     }
   });
 

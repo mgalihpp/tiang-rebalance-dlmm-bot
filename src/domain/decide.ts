@@ -59,7 +59,7 @@ export const deployableAmounts = (
   return {
     depositX,
     depositY,
-    singleSidedX: policy.width === 1 && depositY === 0n && depositX > 0n,
+    singleSidedX: depositY === 0n && depositX > 0n,
   };
 };
 
