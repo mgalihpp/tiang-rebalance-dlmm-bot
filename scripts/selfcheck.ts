@@ -12,7 +12,7 @@ if (poolAddress === undefined) {
 }
 
 const rpcUrl = process.env.RPC_URL ?? "https://api.mainnet-beta.solana.com";
-const width = process.env.POSITION_WIDTH === "2" ? 2 : 1;
+const width = process.env.POSITION_WIDTH === "3" ? 3 : process.env.POSITION_WIDTH === "2" ? 2 : 1;
 const owner = Keypair.generate();
 
 const chain = await makeChain(rpcUrl, poolAddress, owner.publicKey);

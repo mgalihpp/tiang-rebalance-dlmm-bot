@@ -88,6 +88,14 @@ describe("targetRange", () => {
   it("keeps a single-sided X position in the active bin and the one above", () => {
     expect(targetRange(binId(100), 2, "x")).toEqual({ lower: 100, upper: 101 });
   });
+
+  it("puts a width 3 X position in the active bin and the two above", () => {
+    expect(targetRange(binId(100), 3, "x")).toEqual({ lower: 100, upper: 102 });
+  });
+
+  it("puts a width 3 Y position in the active bin and the two below", () => {
+    expect(targetRange(binId(100), 3, "y")).toEqual({ lower: 98, upper: 100 });
+  });
 });
 
 describe("decide", () => {
@@ -106,6 +114,27 @@ describe("decide", () => {
     });
     expect(d._tag).toBe("Open");
     if (d._tag === "Open") expect(d.range).toEqual({ lower: 99, upper: 100 });
+  });
+
+  it("opens a three-bin Y-only position below and through the active bin", () => {
+    const d = run(snapshot({ active: 100, x: 0n, y: 1_000_000_000n }), {
+      p: { ...policy, width: 3 },
+    });
+    expect(d._tag).toBe("Open");
+    if (d._tag === "Open") expect(d.range).toEqual({ lower: 98, upper: 100 });
+  });
+
+  it("opens a three-bin X-only position from the active bin upward", () => {
+    const d = run(snapshot({ active: 100, x: 1_000_000_000n, y: 0n }), {
+      p: { ...policy, width: 3 },
+    });
+    expect(d._tag).toBe("Open");
+    if (d._tag === "Open") {
+      expect(d.range).toEqual({ lower: 100, upper: 102 });
+      expect(d.depositX).toBe(1_000_000_000n);
+      expect(d.depositY).toBe(0n);
+      expect(d.singleSidedX).toBe(false);
+    }
   });
 
   it("opens single-sided X when only X is funded", () => {

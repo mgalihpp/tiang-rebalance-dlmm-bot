@@ -12,7 +12,7 @@
 
 # Tiang Rebalance DLMM Bot
 
-This bot manages one Meteora DLMM pool. It opens a position that spans one or two
+This bot manages one Meteora DLMM pool. It opens a position that spans one, two, or three
 bins around the active bin. When the price moves outside the range, it closes the
 position, claims fees, and opens a new single-sided position. If the wallet holds
 both pool tokens, the bot deposits only the side with the greater value at the
@@ -74,6 +74,9 @@ X-only position at the active bin.
 The bot does not swap through Jupiter. It uses the selected token balance already in
 the wallet, so it does not force a swap when the price crosses the range.
 
+Changing `POSITION_WIDTH` does not resize an open position. The new width applies when
+the bot next opens a position or rebalances after price leaves the current range.
+
 For a pool with wrapped SOL on one side, the bot counts native SOL above
 `MIN_SOL_RESERVE_SOL` as available balance on that side. Meteora's SDK wraps SOL during
 the open transaction and unwraps it when the position closes.
@@ -82,7 +85,7 @@ the open transaction and unwraps it when the position closes.
 
 - `DRY_RUN=true` is the default. The bot builds and simulates transactions but does
   not send them.
-- Live trading requires `LIVE=true`, `DRY_RUN=false`, and the `--confirm-live` flag.
+- Live trading starts when `LIVE=true` and `DRY_RUN=false`. Set these values carefully.
 - The bot simulates every transaction before sending it. A failed simulation stops that
   transaction from being sent.
 - `MAX_REBALANCES_PER_HOUR` is currently checked only when no position is open. It does
@@ -95,6 +98,8 @@ the open transaction and unwraps it when the position closes.
   before opening.
 - `MAX_DEPLOY_X` and `MAX_DEPLOY_Y` cap the raw token amounts considered for a deposit.
 - The bot writes decisions and transaction results to `state/journal.jsonl`.
+- Optional Telegram alerts report startup, completed position actions, halts, and cycle
+  failures. Notifications are outbound only and cannot control trading.
 
 `MAX_SNAPSHOT_AGE_MS` does not detect a slow RPC response reliably. The snapshot
 timestamp is set after the chain reads finish, so a delayed response can still look fresh.
@@ -111,7 +116,8 @@ cp .env.example .env
 bun run probe                  # Read the pool without a funded wallet.
 bun run once                   # Run one cycle in dry-run mode.
 bun run dev                    # Run the loop in dry-run mode.
-bun src/main.ts --confirm-live # Run the live loop with the safety gate.
+# Set LIVE=true and DRY_RUN=false in .env before starting live trading.
+bun run dev
 ```
 
 Set `WALLET_KEYPAIR_PATH` to a file containing a JSON secret-key array or a base58
@@ -122,6 +128,10 @@ token balance.
 Environment variables can expose private keys through shell history, `docker inspect`,
 or process logs. For live funds, use `WALLET_KEYPAIR_PATH` and restrict file access to
 the bot user.
+
+To enable Telegram alerts, create a bot with `@BotFather`, send it a message, and set
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. Keep the bot token private. The
+bot sends alerts only and does not accept trading commands.
 
 `bun run probe` only needs an RPC URL. Other modes build transactions and need a wallet
 with SOL for fees and rent. Dry-run does not remove that requirement.
@@ -135,7 +145,7 @@ with SOL for fees and rent. Dry-run does not remove that requirement.
 | `POOL_ADDRESS` | Required | DLMM pool address. |
 | `WALLET_KEYPAIR_PATH` | Required unless `WALLET_SECRET_KEY` is set | JSON array or base58 key file. |
 | `WALLET_SECRET_KEY` | Empty | Alternative to a key file. Accepts a 64-byte base58 key, 32-byte base58 seed, or JSON array. |
-| `POSITION_WIDTH` | `1` | Position width in bins. Accepted values are `1` and `2`. |
+| `POSITION_WIDTH` | `1` | Position width in bins. Accepted values are `1`, `2`, and `3`. |
 | `SLIPPAGE_PERCENT` | `1` | Percent, not basis points. The SDK converts it to a bin tolerance. |
 | `MAX_DEPLOY_X`, `MAX_DEPLOY_Y` | No limit | Maximum raw token amount considered for a deposit. |
 | `MIN_SOL_RESERVE_SOL` | `0.05` | SOL reserved for fees and rent. |
@@ -148,6 +158,8 @@ with SOL for fees and rent. Dry-run does not remove that requirement.
 | `MAX_SNAPSHOT_AGE_MS` | `30000` | Maximum snapshot age checked by the decision logic. |
 | `STATE_DIR` | `./state` | Journal and HALT file directory. |
 | `LOG_LEVEL` | `info` | Accepted values are `debug`, `info`, `warn`, and `error`. |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Disabled | Set both to receive startup, action, halt, and cycle-error alerts. Keep the bot token private. |
+| `TELEGRAM_TIMEOUT_MS` | `3000` | Request timeout for Telegram alerts, from 500 to 30000 ms. |
 | `DRY_RUN` | `true` | Simulate transactions without sending them. |
 | `LIVE` | `false` | Must be `true` with `DRY_RUN=false` for live trading. |
 

@@ -1,6 +1,6 @@
 import { type BinId, type Range, binId } from "./types.js";
 
-export type Width = 1 | 2;
+export type Width = 1 | 2 | 3;
 
 export const makeRange = (lower: BinId, upper: BinId): Range => {
   if (upper < lower) {
@@ -14,8 +14,8 @@ export const targetRange = (
   width: Width,
   singleSided: "x" | "y" | null = null,
 ): Range => {
-  if (width === 2 && singleSided === "y") {
-    return makeRange(binId(active - 1), active);
+  if (singleSided === "y") {
+    return makeRange(binId(active - width + 1), active);
   }
   return makeRange(active, binId(active + width - 1));
 };

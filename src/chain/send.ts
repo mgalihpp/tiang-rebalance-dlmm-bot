@@ -4,7 +4,6 @@ import {
   type Connection,
   type Keypair,
   type Transaction,
-  type BlockheightBasedTransactionConfirmationStrategy,
 } from "@solana/web3.js";
 import type { Logger } from "../log.js";
 
@@ -67,25 +66,64 @@ const sendAndConfirm = async (
   label: string,
 ): Promise<string> => {
   tx.sign(...signers);
-  const signature = await ctx.connection.sendRawTransaction(tx.serialize(), {
+  const rawTransaction = tx.serialize();
+  const signature = await ctx.connection.sendRawTransaction(rawTransaction, {
     skipPreflight: false,
-    maxRetries: 3,
+    maxRetries: 0,
     preflightCommitment: "confirmed",
   });
   ctx.log.debug("transaction sent", { label, signature });
 
-  const strategy: BlockheightBasedTransactionConfirmationStrategy = {
-    signature,
-    blockhash: tx.recentBlockhash as string,
-    lastValidBlockHeight: tx.lastValidBlockHeight as number,
-  };
-  const confirmation = await ctx.connection.confirmTransaction(strategy, "confirmed");
-  if (confirmation.value.err !== null) {
-    throw new Error(
-      `transaction ${signature} for ${label} failed: ${JSON.stringify(confirmation.value.err)}`,
-    );
+  const blockhash = tx.recentBlockhash;
+  const lastValidBlockHeight = tx.lastValidBlockHeight;
+  if (blockhash === undefined || lastValidBlockHeight === undefined) {
+    throw new Error(`transaction ${signature} for ${label} has no blockhash expiry metadata`);
   }
-  return signature;
+
+  while (true) {
+    const [statuses, blockHeight] = await Promise.all([
+      ctx.connection.getSignatureStatuses([signature]),
+      ctx.connection.getBlockHeight("confirmed"),
+    ]);
+    const status = statuses.value[0];
+    if (status?.err !== null && status?.err !== undefined) {
+      throw new Error(`transaction ${signature} for ${label} failed: ${JSON.stringify(status.err)}`);
+    }
+    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") {
+      return signature;
+    }
+    if (blockHeight > lastValidBlockHeight) {
+      const history = await ctx.connection.getSignatureStatuses([signature], {
+        searchTransactionHistory: true,
+      });
+      const landed = history.value[0];
+      if (landed?.err !== null && landed?.err !== undefined) {
+        throw new Error(`transaction ${signature} for ${label} failed: ${JSON.stringify(landed.err)}`);
+      }
+      if (landed?.confirmationStatus === "confirmed" || landed?.confirmationStatus === "finalized") {
+        return signature;
+      }
+      const expired = new Error(
+        `transaction ${signature} for ${label} expired at block height ${blockHeight}; last valid height was ${lastValidBlockHeight}`,
+      );
+      expired.name = "TransactionExpiredBlockheightExceededError";
+      throw expired;
+    }
+
+    try {
+      await ctx.connection.sendRawTransaction(rawTransaction, {
+        skipPreflight: true,
+        maxRetries: 0,
+        preflightCommitment: "confirmed",
+      });
+    } catch (error) {
+      ctx.log.warn("transaction rebroadcast failed", {
+        label,
+        error: error instanceof Error ? error.name : "unknown error",
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
 };
 
 export const sendTx = async (
@@ -112,6 +150,7 @@ export const sendTx = async (
   }
 
   try {
+    await refreshBlockhash(ctx, tx);
     const signature = await sendAndConfirm(ctx, tx, signers, label);
     return { _tag: "sent", signature };
   } catch (error) {
@@ -125,9 +164,9 @@ export const sendTx = async (
     }
 
     ctx.log.warn("blockhash expired, rebuilding once", { label });
-    await refreshBlockhash(ctx, tx);
     await simulate(ctx, tx, `${label}:retry`);
     try {
+      await refreshBlockhash(ctx, tx);
       const signature = await sendAndConfirm(ctx, tx, signers, `${label}:retry`);
       return { _tag: "sent", signature };
     } catch (retryError) {

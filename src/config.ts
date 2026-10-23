@@ -4,6 +4,15 @@ export type WalletSource =
   | { readonly kind: "file"; readonly path: string }
   | { readonly kind: "inline"; readonly secret: string };
 
+export type TelegramConfig =
+  | { readonly enabled: false }
+  | {
+      readonly enabled: true;
+      readonly botToken: string;
+      readonly chatId: string;
+      readonly timeoutMs: number;
+    };
+
 export type Config = {
   readonly rpcUrl: string;
   readonly wsUrl: string | null;
@@ -25,6 +34,7 @@ export type Config = {
   readonly live: boolean;
   readonly stateDir: string;
   readonly logLevel: "debug" | "info" | "warn" | "error";
+  readonly telegram: TelegramConfig;
 };
 
 export type ConfigError = { readonly field: string; readonly message: string };
@@ -146,7 +156,7 @@ export const parseConfig = (env: Env): ParseResult => {
   else if (keypairPath !== null) wallet = { kind: "file", path: keypairPath };
   else errors.push({ field: "WALLET_KEYPAIR_PATH", message: "required (or WALLET_SECRET_KEY)" });
 
-  const width = collect(readEnum(env, "POSITION_WIDTH", ["1", "2"] as const, "1"));
+  const width = collect(readEnum(env, "POSITION_WIDTH", ["1", "2", "3"] as const, "1"));
   const slippagePercent = collect(readFloat(env, "SLIPPAGE_PERCENT", 1, { min: 0.01, max: 10 }));
   const maxDeployX = collect(readBigInt(env, "MAX_DEPLOY_X", null));
   const maxDeployY = collect(readBigInt(env, "MAX_DEPLOY_Y", null));
@@ -174,6 +184,24 @@ export const parseConfig = (env: Env): ParseResult => {
   const logLevel = collect(
     readEnum(env, "LOG_LEVEL", ["debug", "info", "warn", "error"] as const, "info"),
   );
+  const telegramTimeoutMs = collect(readInt(env, "TELEGRAM_TIMEOUT_MS", 3_000, { min: 500, max: 30_000 }));
+  const telegramBotToken = readString(env, "TELEGRAM_BOT_TOKEN");
+  const telegramChatId = readString(env, "TELEGRAM_CHAT_ID");
+
+  let telegram: TelegramConfig = { enabled: false };
+  if ((telegramBotToken === null) !== (telegramChatId === null)) {
+    errors.push({
+      field: telegramBotToken === null ? "TELEGRAM_BOT_TOKEN" : "TELEGRAM_CHAT_ID",
+      message: "required when Telegram integration is enabled",
+    });
+  } else if (telegramBotToken !== null && telegramChatId !== null && telegramTimeoutMs !== null) {
+    telegram = {
+      enabled: true,
+      botToken: telegramBotToken,
+      chatId: telegramChatId,
+      timeoutMs: telegramTimeoutMs,
+    };
+  }
 
   if (poolAddress !== null && poolAddress.length < 32) {
     errors.push({ field: "POOL_ADDRESS", message: "does not look like a base58 pubkey" });
@@ -217,6 +245,7 @@ export const parseConfig = (env: Env): ParseResult => {
       live: live as boolean,
       stateDir,
       logLevel: logLevel as Config["logLevel"],
+      telegram,
     },
   };
 };

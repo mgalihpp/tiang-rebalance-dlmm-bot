@@ -21,6 +21,27 @@ describe("parseConfig", () => {
     expect(config.slippagePercent).toBe(1);
     expect(config.minSolReserve).toBe(50_000_000n);
     expect(config.maxRebalancesPerHour).toBe(20);
+    expect(config.telegram).toEqual({ enabled: false });
+  });
+
+  it("requires both Telegram credentials", () => {
+    expect(parseConfig({ ...base, TELEGRAM_BOT_TOKEN: "secret" })._tag).toBe("err");
+    expect(parseConfig({ ...base, TELEGRAM_CHAT_ID: "123" })._tag).toBe("err");
+  });
+
+  it("enables Telegram alerts when both credentials are set", () => {
+    const config = ok({
+      ...base,
+      TELEGRAM_BOT_TOKEN: "secret",
+      TELEGRAM_CHAT_ID: "123",
+      TELEGRAM_TIMEOUT_MS: "5000",
+    });
+    expect(config.telegram).toEqual({
+      enabled: true,
+      botToken: "secret",
+      chatId: "123",
+      timeoutMs: 5000,
+    });
   });
 
   it("requires a pool address", () => {
@@ -39,8 +60,12 @@ describe("parseConfig", () => {
     expect(config.dryRun).toBe(false);
   });
 
-  it("rejects a width outside 1..2", () => {
-    expect(parseConfig({ ...base, POSITION_WIDTH: "3" })._tag).toBe("err");
+  it("accepts width 3", () => {
+    expect(ok({ ...base, POSITION_WIDTH: "3" }).width).toBe(3);
+  });
+
+  it("rejects a width outside 1..3", () => {
+    expect(parseConfig({ ...base, POSITION_WIDTH: "4" })._tag).toBe("err");
   });
 
   it("rejects a priority fee above the cap", () => {

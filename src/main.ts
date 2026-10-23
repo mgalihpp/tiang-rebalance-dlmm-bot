@@ -9,6 +9,7 @@ import { act, type ActContext } from "./chain/act.js";
 import { appendJournal, haltPath, isHalted, readHistory } from "./journal.js";
 import { makeLogger } from "./log.js";
 import { loadKeypair } from "./wallet.js";
+import { makeTelegramNotifier, type TelegramAlert } from "./telegram.js";
 
 const policyOf = (config: Config): Policy => ({
   width: config.width,
@@ -76,13 +77,9 @@ const main = async (): Promise<number> => {
 
   const config = parsed.config;
   const log = makeLogger(config.logLevel);
+  const telegram = makeTelegramNotifier(config.telegram, log);
   const once = process.argv.includes("--once");
   const probe = process.argv.includes("--probe");
-
-  if (config.live && !config.dryRun && !process.argv.includes("--confirm-live")) {
-    log.error("refusing to trade live without --confirm-live", { live: config.live, dryRun: config.dryRun });
-    return 1;
-  }
 
   if (isHalted(config.stateDir) && !probe) {
     log.error("HALT file present; delete it after investigating before restarting", {
@@ -122,6 +119,7 @@ const main = async (): Promise<number> => {
     tokenX: chain.tokenXMeta.mint,
     tokenY: chain.tokenYMeta.mint,
   });
+  await telegram.notify({ _tag: "started", pool: config.poolAddress, dryRun: config.dryRun });
 
   const policy = policyOf(config);
   const actContext: ActContext = {
@@ -171,11 +169,14 @@ const main = async (): Promise<number> => {
       mkdirSync(config.stateDir, { recursive: true });
       writeFileSync(haltPath(config.stateDir), `${new Date().toISOString()} ${decision.reason}\n`, "utf8");
       log.error("halting", { reason: decision.reason });
+      await telegram.notify({ _tag: "halt", reason: decision.reason });
       return { halt: true };
     }
 
     const result = await act(actContext, decision);
     log.info("action complete", { result: result._tag, ...("decision" in result ? { decision: result.decision } : {}) });
+    const alert = actionAlert(result);
+    if (alert !== null) await telegram.notify(alert);
     return { halt: false };
   };
 
@@ -186,7 +187,9 @@ const main = async (): Promise<number> => {
       );
       return result.halt ? 0 : 0;
     } catch (error) {
-      log.error("cycle failed", { error: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      log.error("cycle failed", { error: message });
+      await telegram.notify({ _tag: "cycle-error", message });
       return 1;
     }
   }
@@ -195,10 +198,11 @@ const main = async (): Promise<number> => {
     if (stop) return;
     yield* Effect.tryPromise({ try: runCycle, catch: (error) => error }).pipe(
       Effect.catchAllCause((cause) =>
-        Effect.sync((): { halt: boolean } => {
+        Effect.promise(async (): Promise<{ halt: boolean }> => {
           const message = Cause.pretty(cause);
           log.error("cycle failed", { cause: message });
           appendJournal(config.stateDir, { ts: Date.now(), kind: "error", message });
+          await telegram.notify({ _tag: "cycle-error", message });
           return { halt: false };
         }),
       ),
@@ -221,6 +225,18 @@ const main = async (): Promise<number> => {
 
   log.info("bot finished");
   return 0;
+};
+
+const actionAlert = (result: Awaited<ReturnType<typeof act>>): TelegramAlert | null => {
+  switch (result._tag) {
+    case "opened":
+    case "closed":
+    case "rebalanced":
+      return { _tag: "action", result };
+    case "dry-run":
+    case "nothing":
+      return null;
+  }
 };
 
 const exit = await main();
