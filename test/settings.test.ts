@@ -38,6 +38,15 @@ describe("settings store", () => {
     expect((await store.set("walletKeypairPath", "111111111111111111111111111111111111111111111111111111111")).ok).toBe(false);
   });
 
+  it("accepts SOL-denominated reserves and stores lamports", async () => {
+    const { store } = make();
+    expect((await store.set("minSolReserve", "0.2")).ok).toBe(true);
+    expect(store.currentConfig().minSolReserve).toBe(200_000_000n);
+    expect((await store.set("minSolReserve", "1")).ok).toBe(true);
+    expect(store.currentConfig().minSolReserve).toBe(1_000_000_000n);
+    expect((await store.set("minSolReserve", "0.0000000001")).ok).toBe(false);
+  });
+
   it("requires explicit live confirmation and tracks restart-only differences", async () => {
     const { store } = make();
     expect((await store.set("mode", "live")).ok).toBe(false);

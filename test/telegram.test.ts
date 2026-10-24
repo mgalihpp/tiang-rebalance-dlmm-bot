@@ -17,15 +17,16 @@ const setup = () => {
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe("Telegram settings", () => {
-  it("registers commands, renders category pages, and updates through ForceReply", async () => {
+  it("registers commands, renders category pages, and accepts a plain-text value after ForceReply", async () => {
     const { config, store } = setup();
     const requests: { method: string; body: Record<string, unknown> }[] = [];
     const updates = [
       [{ update_id: 1, message: { chat: { id: 12345, type: "private" }, from: { id: 12345 }, text: "/settings" } }],
       [{ update_id: 2, callback_query: { id: "cb0", data: "nav:protected", from: { id: 12345 }, message: { message_id: 10, chat: { id: 12345, type: "private" } } } }],
-      [{ update_id: 3, callback_query: { id: "cb1", data: "nav:timing", from: { id: 12345 }, message: { message_id: 10, chat: { id: 12345, type: "private" } } } }],
-      [{ update_id: 4, callback_query: { id: "cb2", data: "edit:pollIntervalMs", from: { id: 12345 }, message: { message_id: 10, chat: { id: 12345, type: "private" } } } }],
-      [{ update_id: 5, message: { chat: { id: 12345, type: "private" }, from: { id: 12345 }, text: "8000", reply_to_message: { message_id: 99 } } }],
+      [{ update_id: 3, callback_query: { id: "cb1", data: "nav:limits", from: { id: 12345 }, message: { message_id: 10, chat: { id: 12345, type: "private" } } } }],
+      [{ update_id: 4, callback_query: { id: "cb2", data: "nav:timing", from: { id: 12345 }, message: { message_id: 10, chat: { id: 12345, type: "private" } } } }],
+      [{ update_id: 5, callback_query: { id: "cb3", data: "edit:pollIntervalMs", from: { id: 12345 }, message: { message_id: 10, chat: { id: 12345, type: "private" } } } }],
+      [{ update_id: 6, message: { chat: { id: 12345, type: "private" }, from: { id: 12345 }, text: "8000" } }],
       [],
     ];
     let pollCount = 0;
@@ -34,7 +35,7 @@ describe("Telegram settings", () => {
       const method = String(input).split("/").pop() ?? "";
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       requests.push({ method, body });
-      if (method === "getUpdates") { pollCount++; if (pollCount === 6) controller.abort(); return Response.json({ ok: true, result: updates.shift() ?? [] }); }
+      if (method === "getUpdates") { pollCount++; if (pollCount === 7) controller.abort(); return Response.json({ ok: true, result: updates.shift() ?? [] }); }
       if (method === "sendMessage" && (body.text as string).includes("Enter poll interval")) return Response.json({ ok: true, result: { message_id: 99 } });
       return Response.json({ ok: true, result: {} });
     };
@@ -42,6 +43,8 @@ describe("Telegram settings", () => {
     expect(requests.find((request) => request.method === "setMyCommands")?.body.commands).toEqual([{ command: "settings", description: "Configure bot settings" }, { command: "status", description: "Show current settings" }]);
     expect(JSON.stringify(requests.find((request) => request.method === "sendMessage")?.body)).toContain("Strategy");
     expect(requests.some(({ body }) => String(JSON.stringify(body.reply_markup)).includes("force_reply"))).toBe(true);
+    expect(requests.some(({ body }) => String(body.text).includes("minimum SOL reserve: 0.05 (next cycle)") && String(body.text).includes("maximum deploy X (raw units): unlimited"))).toBe(true);
+    expect(requests.filter(({ body }) => typeof body.text === "string").every(({ body }) => !String(body.text).includes("undefined"))).toBe(true);
     expect(requests.some(({ body }) => String(body.text).includes("TELEGRAM_BOT_TOKEN") && !String(body.text).includes("test-token"))).toBe(true);
     expect(store.currentConfig().pollIntervalMs).toBe(8_000);
   });

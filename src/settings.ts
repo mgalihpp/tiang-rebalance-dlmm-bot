@@ -168,8 +168,10 @@ const parseSetting = (key: SettingKey, raw: string, config: Config): SettingPars
     case "mode": return value === "live" || value === "dry-run" ? value : "Choose dry-run or live.";
     case "slippagePercent": { const n = Number(value); return Number.isFinite(n) && n >= 0.01 && n <= 10 ? n : "Enter a percentage from 0.01 to 10."; }
     case "minSolReserve": {
-      const parsed = amount();
-      return typeof parsed === "bigint" && parsed > 1_000_000_000_000n ? "Enter a SOL reserve from 0 to 1000 SOL in lamports." : parsed === null ? "Enter a SOL reserve from 0 to 1000 SOL in lamports." : parsed;
+      if (!/^(0|[1-9]\d*)(\.\d{1,9})?$/.test(value)) return "Enter a SOL amount from 0 to 1000, with up to 9 decimal places.";
+      const [whole = "0", fraction = ""] = value.split(".");
+      const sol = BigInt(whole) * 1_000_000_000n + BigInt(fraction.padEnd(9, "0") || "0");
+      return sol <= 1_000_000_000_000n ? sol : "Enter a SOL amount from 0 to 1000.";
     }
     case "maxDeployX": case "maxDeployY": case "priorityFeeMicroLamports": case "maxPriorityFeeMicroLamports": return amount();
     case "pollIntervalMs": return int(500, 120_000);

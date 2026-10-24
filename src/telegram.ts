@@ -69,6 +69,7 @@ export const makeTelegramSettingsController = (
     let commandsRegistered = false;
     let liveConfirmation: { expires: number; key: SettingKey } | null = null;
     const prompts = new Map<number, SettingKey>();
+    let latestPrompt: SettingKey | null = null;
     const call = (method: string, payload: unknown) => telegramCall(fetchMessage, telegram, method, payload, signal);
     const sendPage = async (page: string, text = "") => call("sendMessage", {
       chat_id: telegram.chatId,
@@ -97,12 +98,14 @@ export const makeTelegramSettingsController = (
             if (chat?.type === "private" && String(chat.id) === telegram.chatId && String(from?.id) === telegram.chatId && typeof message.text === "string") {
               const text = message.text.trim();
               if (/^\/(settings|status)(?:@\w+)?$/.test(text)) {
+                latestPrompt = null;
                 await sendPage(/^\/status(?:@\w+)?$/.test(text) ? "status" : "menu");
-              } else if (message.reply_to_message) {
+              } else {
                 const reply = record(message.reply_to_message);
-                const key = typeof reply?.message_id === "number" ? prompts.get(reply.message_id) : undefined;
+                const key = typeof reply?.message_id === "number" ? prompts.get(reply.message_id) : latestPrompt;
                 if (key && validSettingKey(key)) {
                   if (typeof reply?.message_id === "number") prompts.delete(reply.message_id);
+                  latestPrompt = null;
                   const result = await store.set(key, text);
                   if (result.ok) await sendPage(categoryFor(key), `Saved.\n${renderPage(categoryFor(key), result.snapshot)}`);
                   else if (result.confirmationRequired && key === "mode" && text === "live") {
@@ -157,7 +160,8 @@ export const makeTelegramSettingsController = (
               const key = data.slice(5);
               if (validSettingKey(key)) {
                 await answer("Reply with the new value");
-                const prompt = record(await call("sendMessage", { chat_id: telegram.chatId, text: `Enter ${settingLabel(key)}. Reply to this message with the value.`, reply_markup: { force_reply: true, selective: true } }));
+                latestPrompt = key;
+                const prompt = record(await call("sendMessage", { chat_id: telegram.chatId, text: `Enter ${settingLabel(key)}. Send the value${key === "minSolReserve" ? " in SOL, for example 0.2 or 1" : ""}. You can reply to this message or send the value as your next message.`, reply_markup: { force_reply: true, selective: true } }));
                 const result = record(prompt?.result);
                 if (typeof result?.message_id === "number") prompts.set(result.message_id, key);
               } else await answer("This setting is unavailable", true);
@@ -188,12 +192,20 @@ const abortableDelay = (signal: AbortSignal, milliseconds: number): Promise<void
 
 const validSettingKey = (key: string): key is SettingKey => ["width", "slippagePercent", "maxDeployX", "maxDeployY", "minSolReserve", "priorityFeeMicroLamports", "maxPriorityFeeMicroLamports", "pollIntervalMs", "dwellTicks", "maxRebalancesPerHour", "minRebalanceIntervalMs", "maxSnapshotAgeMs", "mode", "poolAddress", "walletKeypairPath", "logLevel", "telegramTimeoutMs"].includes(key);
 const categoryFor = (key: SettingKey): string => ["poolAddress", "walletKeypairPath", "logLevel", "telegramTimeoutMs"].includes(key) ? "restart" : key === "mode" ? "mode" : ["width", "slippagePercent"].includes(key) ? "strategy" : ["maxDeployX", "maxDeployY", "minSolReserve"].includes(key) ? "limits" : ["priorityFeeMicroLamports", "maxPriorityFeeMicroLamports"].includes(key) ? "fees" : "timing";
-const settingLabel = (key: SettingKey): string => ({ width: "position width", slippagePercent: "slippage percent", maxDeployX: "maximum deploy X (raw units)", maxDeployY: "maximum deploy Y (raw units)", minSolReserve: "minimum SOL reserve (lamports)", priorityFeeMicroLamports: "priority fee (micro-lamports)", maxPriorityFeeMicroLamports: "maximum priority fee (micro-lamports)", pollIntervalMs: "poll interval (milliseconds)", dwellTicks: "dwell ticks", maxRebalancesPerHour: "maximum rebalances per hour", minRebalanceIntervalMs: "minimum rebalance interval (milliseconds)", maxSnapshotAgeMs: "maximum snapshot age (milliseconds)", mode: "mode", poolAddress: "pool address", walletKeypairPath: "wallet keypair file path", logLevel: "log level", telegramTimeoutMs: "Telegram timeout (milliseconds)" })[key];
+const settingLabel = (key: SettingKey): string => ({ width: "position width", slippagePercent: "slippage percent", maxDeployX: "maximum deploy X (raw units)", maxDeployY: "maximum deploy Y (raw units)", minSolReserve: "minimum SOL reserve", priorityFeeMicroLamports: "priority fee (micro-lamports)", maxPriorityFeeMicroLamports: "maximum priority fee (micro-lamports)", pollIntervalMs: "poll interval (milliseconds)", dwellTicks: "dwell ticks", maxRebalancesPerHour: "maximum rebalances per hour", minRebalanceIntervalMs: "minimum rebalance interval (milliseconds)", maxSnapshotAgeMs: "maximum snapshot age (milliseconds)", mode: "mode", poolAddress: "pool address", walletKeypairPath: "wallet keypair file path", logLevel: "log level", telegramTimeoutMs: "Telegram timeout (milliseconds)" })[key];
 const valueFor = (key: SettingKey, snapshot: ReturnType<SettingsStore["snapshot"]>): string => {
-  const value = (snapshot.runtime as unknown as Record<string, unknown>)[key] ?? (snapshot.restart as unknown as Record<string, unknown>)[key];
+  const runtimeValue = snapshot.runtime[key as keyof typeof snapshot.runtime];
+  const restartValue = snapshot.restart[key as keyof typeof snapshot.restart];
+  const value = runtimeValue === undefined ? restartValue : runtimeValue;
+  if (key === "minSolReserve" && typeof value === "bigint") return formatSol(value);
   if (typeof value === "bigint") return value.toString();
   if (value === null) return "unlimited";
   return String(value);
+};
+const formatSol = (lamports: bigint): string => {
+  const whole = lamports / 1_000_000_000n;
+  const fraction = (lamports % 1_000_000_000n).toString().padStart(9, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
 };
 const editable: Record<string, readonly SettingKey[]> = {
   strategy: ["width", "slippagePercent"], limits: ["maxDeployX", "maxDeployY", "minSolReserve"], fees: ["priorityFeeMicroLamports", "maxPriorityFeeMicroLamports"],
