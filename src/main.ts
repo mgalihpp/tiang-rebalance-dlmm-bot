@@ -10,7 +10,7 @@ import { appendJournal, haltPath, isHalted, readHistory } from "./journal.js";
 import { makeLogger } from "./log.js";
 import { loadKeypair } from "./wallet.js";
 import { makeTelegramNotifier, makeTelegramSettingsController, type TelegramAlert } from "./telegram.js";
-import { makeRuntimeSettingsStore } from "./settings.js";
+import { makeSettingsStore, type RuntimeSettings } from "./settings.js";
 
 const policyOf = (config: Config): Policy => ({
   width: config.width,
@@ -21,6 +21,16 @@ const policyOf = (config: Config): Policy => ({
   minRebalanceIntervalMs: config.minRebalanceIntervalMs,
   maxSnapshotAgeMs: config.maxSnapshotAgeMs,
 });
+
+const configForRuntime = (config: Config, runtime: RuntimeSettings): Config => {
+  const { mode, ...values } = runtime;
+  return {
+    ...config,
+    ...values,
+    dryRun: mode === "dry-run",
+    live: mode === "live",
+  };
+};
 
 const serializableSnapshot = (snapshot: Awaited<ReturnType<typeof observe>>): unknown => ({
   at: new Date(snapshot.at).toISOString(),
@@ -76,10 +86,12 @@ const main = async (): Promise<number> => {
     return 1;
   }
 
-  const config = parsed.config;
-  const log = makeLogger(config.logLevel);
+  const envConfig = parsed.config;
+  const bootstrapLog = makeLogger(envConfig.logLevel);
+  const settings = makeSettingsStore(envConfig, bootstrapLog);
+  const config = settings.currentConfig();
+  const log = config.logLevel === envConfig.logLevel ? bootstrapLog : makeLogger(config.logLevel);
   const telegram = makeTelegramNotifier(config.telegram, log);
-  const runtimeSettings = makeRuntimeSettingsStore(config.stateDir, config.pollIntervalMs, log);
   const once = process.argv.includes("--once");
   const probe = process.argv.includes("--probe");
 
@@ -123,22 +135,9 @@ const main = async (): Promise<number> => {
   });
   await telegram.notify({ _tag: "started", pool: config.poolAddress, dryRun: config.dryRun });
 
-  const policy = policyOf(config);
-  const actContext: ActContext = {
-    chain,
-    config,
-    stateDir: config.stateDir,
-    connection: chain.connection,
-    owner,
-    dryRun: config.dryRun,
-    priorityFeeMicroLamports: config.priorityFeeMicroLamports,
-    maxPriorityFeeMicroLamports: config.maxPriorityFeeMicroLamports,
-    log,
-  };
-
   let stop = false;
   const telegramAbort = new AbortController();
-  const telegramSettings = makeTelegramSettingsController(config.telegram, log, runtimeSettings);
+  const telegramSettings = makeTelegramSettingsController(config, log, settings);
   const requestStop = (): void => {
     stop = true;
     telegramAbort.abort();
@@ -151,6 +150,19 @@ const main = async (): Promise<number> => {
   const dwellRef = await Effect.runPromise(Ref.make({ binId: -1, ticks: 0 }));
 
   const runCycle = async (): Promise<{ halt: boolean }> => {
+    const cycleConfig = configForRuntime(config, settings.snapshot().runtime);
+    const policy = policyOf(cycleConfig);
+    const actContext: ActContext = {
+      chain,
+      config: cycleConfig,
+      stateDir: cycleConfig.stateDir,
+      connection: chain.connection,
+      owner,
+      dryRun: cycleConfig.dryRun || !cycleConfig.live,
+      priorityFeeMicroLamports: cycleConfig.priorityFeeMicroLamports,
+      maxPriorityFeeMicroLamports: cycleConfig.maxPriorityFeeMicroLamports,
+      log,
+    };
     const snapshot = await observe(chain);
     const dwell = await Effect.runPromise(
       Ref.updateAndGet(dwellRef, (state) =>
@@ -163,9 +175,9 @@ const main = async (): Promise<number> => {
     const decision = decide({
       snapshot,
       policy,
-      history: readHistory(config.stateDir, Date.now()),
+      history: readHistory(cycleConfig.stateDir, Date.now()),
       now: Date.now(),
-      dwellSatisfied: dwell.ticks >= config.dwellTicks,
+      dwellSatisfied: dwell.ticks >= cycleConfig.dwellTicks,
     });
 
     log.info("decision", { ...describeDecision(decision), activeBin: snapshot.pool.activeBin, slot: snapshot.slot });
@@ -219,7 +231,7 @@ const main = async (): Promise<number> => {
       ),
     );
     if (stop) return;
-    yield* Effect.sleep(`${runtimeSettings.getPollIntervalMs()} millis`);
+    yield* Effect.sleep(`${settings.snapshot().runtime.pollIntervalMs} millis`);
     yield* Effect.suspend(() => loop);
   });
 

@@ -99,8 +99,9 @@ the open transaction and unwraps it when the position closes.
 - `MAX_DEPLOY_X` and `MAX_DEPLOY_Y` cap the raw token amounts considered for a deposit.
 - The bot writes decisions and transaction results to `state/journal.jsonl`.
 - Optional Telegram messages report startup, completed position actions, halts, and cycle
-  failures. In a private chat, `/settings` opens buttons to change the polling interval.
-  Other trading and wallet settings remain fixed by the environment.
+  failures. In the authorized private chat, `/settings` opens category pages for strategy,
+  limits, fees, timing, mode, and restart-required configuration. `/status` shows current
+  values and when each change takes effect.
 
 `MAX_SNAPSHOT_AGE_MS` does not detect a slow RPC response reliably. The snapshot
 timestamp is set after the chain reads finish, so a delayed response can still look fresh.
@@ -132,11 +133,12 @@ the bot user.
 
 To enable Telegram messages, create a bot with `@BotFather`, send it a message, and set
 `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. Keep the bot token private. The
-bot accepts `/settings` only from the private chat whose ID matches `TELEGRAM_CHAT_ID`.
-Use its buttons to set the polling interval to 1, 2, 4, 8, 15, or 30 seconds. The choice
-is saved to `runtime-settings.json` inside the configured `STATE_DIR` directory. The new
-interval applies to the running bot. The menu cannot change live trading, position width,
-slippage, or deployment limits.
+bot accepts commands only from the private chat whose ID matches `TELEGRAM_CHAT_ID`.
+Settings are saved in `runtime-settings.json` inside `STATE_DIR`. Runtime changes apply
+on the next cycle. Pool address, wallet keypair path, log level, and Telegram timeout are
+saved as pending restart changes. Private wallet keys, RPC/WS URLs, Telegram token/chat ID,
+and `STATE_DIR` remain environment-only. Enabling live trading requires a separate
+confirmation. Live transactions can move funds.
 
 `bun run probe` only needs an RPC URL. Other modes build transactions and need a wallet
 with SOL for fees and rent. Dry-run does not remove that requirement.
