@@ -36,14 +36,14 @@ describe("Telegram settings", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       requests.push({ method, body });
       if (method === "getUpdates") { pollCount++; if (pollCount === 7) controller.abort(); return Response.json({ ok: true, result: updates.shift() ?? [] }); }
-      if (method === "sendMessage" && (body.text as string).includes("Enter poll interval")) return Response.json({ ok: true, result: { message_id: 99 } });
+      if (method === "sendMessage" && (body.text as string).includes("Change poll interval")) return Response.json({ ok: true, result: { message_id: 99 } });
       return Response.json({ ok: true, result: {} });
     };
     await makeTelegramSettingsController(config, logger, store, fetchMessage).start(controller.signal);
-    expect(requests.find((request) => request.method === "setMyCommands")?.body.commands).toEqual([{ command: "settings", description: "Configure bot settings" }, { command: "status", description: "Show current settings" }]);
-    expect(JSON.stringify(requests.find((request) => request.method === "sendMessage")?.body)).toContain("Strategy");
+    expect(requests.find((request) => request.method === "setMyCommands")?.body.commands).toEqual([{ command: "settings", description: "Configure bot settings" }, { command: "status", description: "View active configuration" }]);
+    expect(JSON.stringify(requests.find((request) => request.method === "sendMessage")?.body)).toContain("BOT SETTINGS");
     expect(requests.some(({ body }) => String(JSON.stringify(body.reply_markup)).includes("force_reply"))).toBe(true);
-    expect(requests.some(({ body }) => String(body.text).includes("minimum SOL reserve: 0.05 (next cycle)") && String(body.text).includes("maximum deploy X (raw units): unlimited"))).toBe(true);
+    expect(requests.some(({ body }) => String(body.text).includes("minimum SOL reserve: 0.05") && String(body.text).includes("maximum token X deposit (raw units): unlimited"))).toBe(true);
     expect(requests.filter(({ body }) => typeof body.text === "string").every(({ body }) => !String(body.text).includes("undefined"))).toBe(true);
     expect(requests.some(({ body }) => String(body.text).includes("TELEGRAM_BOT_TOKEN") && !String(body.text).includes("test-token"))).toBe(true);
     expect(store.currentConfig().pollIntervalMs).toBe(8_000);
@@ -81,7 +81,7 @@ describe("Telegram settings", () => {
     const fetchMessage: typeof fetch = async (input, init) => {
       const method = String(input).split("/").pop() ?? ""; methods.push(method);
       if (method === "getUpdates") { if (++count === 4) controller.abort(); return Response.json({ ok: true, result: updates.shift() ?? [] }); }
-      if (method === "sendMessage" && String(JSON.parse(String(init?.body)).text).includes("Enter mode")) return Response.json({ ok: true, result: { message_id: 44 } });
+      if (method === "sendMessage" && String(JSON.parse(String(init?.body)).text).includes("Change trading mode")) return Response.json({ ok: true, result: { message_id: 44 } });
       return Response.json({ ok: true, result: {} });
     };
     await makeTelegramSettingsController(config, logger, store, fetchMessage).start(controller.signal);

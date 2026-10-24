@@ -79,7 +79,7 @@ export const makeTelegramSettingsController = (
     while (!signal.aborted) {
       try {
         if (!commandsRegistered) {
-          await call("setMyCommands", { commands: [{ command: "settings", description: "Configure bot settings" }, { command: "status", description: "Show current settings" }] });
+          await call("setMyCommands", { commands: [{ command: "settings", description: "Configure bot settings" }, { command: "status", description: "View active configuration" }] });
           commandsRegistered = true;
         }
         const body = record(await call("getUpdates", {
@@ -107,11 +107,11 @@ export const makeTelegramSettingsController = (
                   if (typeof reply?.message_id === "number") prompts.delete(reply.message_id);
                   latestPrompt = null;
                   const result = await store.set(key, text);
-                  if (result.ok) await sendPage(categoryFor(key), `Saved.\n${renderPage(categoryFor(key), result.snapshot)}`);
+                  if (result.ok) await sendPage(categoryFor(key), `✅ Saved. This change ${result.snapshot.pendingRestart.includes(key) ? "takes effect after restart" : "applies next cycle"}.\n\n${renderPage(categoryFor(key), result.snapshot)}`);
                   else if (result.confirmationRequired && key === "mode" && text === "live") {
                     liveConfirmation = { key, expires: Date.now() + 60_000 };
-                    await call("sendMessage", { chat_id: telegram.chatId, text: "Warning: live transactions can move funds. Confirm enabling LIVE mode.", reply_markup: { inline_keyboard: [[{ text: "Confirm live mode", callback_data: "confirm:live" }, { text: "Cancel", callback_data: "nav:mode" }]] } });
-                  } else await sendPage(categoryFor(key), `Not saved. ${result.message}\nCurrent value is unchanged.\n\n${renderPage(categoryFor(key), store.snapshot())}`);
+                    await call("sendMessage", { chat_id: telegram.chatId, text: "⚠️ LIVE mode can send transactions and move funds from your wallet.\n\nConfirm only if you intend to enable live trading.", reply_markup: { inline_keyboard: [[{ text: "⚠️ Enable LIVE", callback_data: "confirm:live" }, { text: "Cancel", callback_data: "nav:mode" }]] } });
+                  } else await sendPage(categoryFor(key), `❌ Not saved. ${result.message}\n\nYour current value is unchanged.\n\n${renderPage(categoryFor(key), store.snapshot())}`);
                 }
               }
             }
@@ -140,14 +140,14 @@ export const makeTelegramSettingsController = (
             } else if (data === "reset:confirm") {
               try {
                 await store.reset();
-                await answer("Settings reset to environment defaults");
+                await answer("Settings restored to environment defaults");
                 await sendPage("menu");
               } catch {
                 await answer("Could not reset settings. Current values are unchanged.", true);
               }
             } else if (data === "reset:ask") {
               await answer("Confirm reset", true);
-              await call("sendMessage", { chat_id: telegram.chatId, text: "Reset all settings to environment defaults?", reply_markup: { inline_keyboard: [[{ text: "Confirm reset", callback_data: "reset:confirm" }, { text: "Cancel", callback_data: "nav:menu" }]] } });
+              await call("sendMessage", { chat_id: telegram.chatId, text: "♻️ Reset all settings to their environment defaults?", reply_markup: { inline_keyboard: [[{ text: "Reset all settings", callback_data: "reset:confirm" }, { text: "Cancel", callback_data: "nav:menu" }]] } });
             } else if (/^width:[123]$/.test(data)) {
               const result = await store.set("width", data.slice(6));
               await answer(result.ok ? "Width saved" : result.message, !result.ok);
@@ -159,9 +159,9 @@ export const makeTelegramSettingsController = (
             } else if (/^edit:[a-zA-Z]+$/.test(data)) {
               const key = data.slice(5);
               if (validSettingKey(key)) {
-                await answer("Reply with the new value");
+                await answer("Send the new value in your next message");
                 latestPrompt = key;
-                const prompt = record(await call("sendMessage", { chat_id: telegram.chatId, text: `Enter ${settingLabel(key)}. Send the value${key === "minSolReserve" ? " in SOL, for example 0.2 or 1" : ""}. You can reply to this message or send the value as your next message.`, reply_markup: { force_reply: true, selective: true } }));
+                const prompt = record(await call("sendMessage", { chat_id: telegram.chatId, text: `✏️ Change ${settingLabel(key)}\n\nSend the new value in your next message. ${key === "minSolReserve" ? "Enter SOL, for example 0.2 or 1." : ""}\nReply to this prompt or send the value directly.`, reply_markup: { force_reply: true, selective: true } }));
                 const result = record(prompt?.result);
                 if (typeof result?.message_id === "number") prompts.set(result.message_id, key);
               } else await answer("This setting is unavailable", true);
@@ -192,7 +192,7 @@ const abortableDelay = (signal: AbortSignal, milliseconds: number): Promise<void
 
 const validSettingKey = (key: string): key is SettingKey => ["width", "slippagePercent", "maxDeployX", "maxDeployY", "minSolReserve", "priorityFeeMicroLamports", "maxPriorityFeeMicroLamports", "pollIntervalMs", "dwellTicks", "maxRebalancesPerHour", "minRebalanceIntervalMs", "maxSnapshotAgeMs", "mode", "poolAddress", "walletKeypairPath", "logLevel", "telegramTimeoutMs"].includes(key);
 const categoryFor = (key: SettingKey): string => ["poolAddress", "walletKeypairPath", "logLevel", "telegramTimeoutMs"].includes(key) ? "restart" : key === "mode" ? "mode" : ["width", "slippagePercent"].includes(key) ? "strategy" : ["maxDeployX", "maxDeployY", "minSolReserve"].includes(key) ? "limits" : ["priorityFeeMicroLamports", "maxPriorityFeeMicroLamports"].includes(key) ? "fees" : "timing";
-const settingLabel = (key: SettingKey): string => ({ width: "position width", slippagePercent: "slippage percent", maxDeployX: "maximum deploy X (raw units)", maxDeployY: "maximum deploy Y (raw units)", minSolReserve: "minimum SOL reserve", priorityFeeMicroLamports: "priority fee (micro-lamports)", maxPriorityFeeMicroLamports: "maximum priority fee (micro-lamports)", pollIntervalMs: "poll interval (milliseconds)", dwellTicks: "dwell ticks", maxRebalancesPerHour: "maximum rebalances per hour", minRebalanceIntervalMs: "minimum rebalance interval (milliseconds)", maxSnapshotAgeMs: "maximum snapshot age (milliseconds)", mode: "mode", poolAddress: "pool address", walletKeypairPath: "wallet keypair file path", logLevel: "log level", telegramTimeoutMs: "Telegram timeout (milliseconds)" })[key];
+const settingLabel = (key: SettingKey): string => ({ width: "position width", slippagePercent: "slippage limit (%)", maxDeployX: "maximum token X deposit (raw units)", maxDeployY: "maximum token Y deposit (raw units)", minSolReserve: "minimum SOL reserve", priorityFeeMicroLamports: "priority fee (micro-lamports)", maxPriorityFeeMicroLamports: "maximum priority fee (micro-lamports)", pollIntervalMs: "poll interval (ms)", dwellTicks: "stable cycles before opening", maxRebalancesPerHour: "maximum rebalances per hour", minRebalanceIntervalMs: "minimum time between rebalances (ms)", maxSnapshotAgeMs: "maximum snapshot age (ms)", mode: "trading mode", poolAddress: "pool address", walletKeypairPath: "wallet keypair file path", logLevel: "log level", telegramTimeoutMs: "Telegram timeout (ms)" })[key];
 const valueFor = (key: SettingKey, snapshot: ReturnType<SettingsStore["snapshot"]>): string => {
   const runtimeValue = snapshot.runtime[key as keyof typeof snapshot.runtime];
   const restartValue = snapshot.restart[key as keyof typeof snapshot.restart];
@@ -212,16 +212,38 @@ const editable: Record<string, readonly SettingKey[]> = {
   timing: ["pollIntervalMs", "dwellTicks", "maxRebalancesPerHour", "minRebalanceIntervalMs", "maxSnapshotAgeMs"], mode: ["mode"],
   restart: ["poolAddress", "walletKeypairPath", "logLevel", "telegramTimeoutMs"],
 };
+const pageTitle: Record<string, string> = {
+  menu: "⚙️ BOT SETTINGS",
+  strategy: "🎯 STRATEGY",
+  limits: "🛡️ LIMITS & RESERVES",
+  fees: "💸 TRANSACTION FEES",
+  timing: "⏱️ TIMING & FREQUENCY",
+  mode: "🚦 TRADING MODE",
+  restart: "🔄 RESTART-REQUIRED SETTINGS",
+  protected: "🔒 PROTECTED SETTINGS",
+  status: "📊 CONFIGURATION STATUS",
+};
+const effectLabel = (key: SettingKey, snapshot: ReturnType<SettingsStore["snapshot"]>): string =>
+  snapshot.pendingRestart.includes(key) ? "requires restart" : "applies next cycle";
 const renderPage = (page: string, snapshot: ReturnType<SettingsStore["snapshot"]>): string => {
-  if (page === "protected") return "Protected settings\nPrivate wallet keys, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, RPC_URL, and WS_URL remain environment-only. STATE_DIR cannot be changed because it owns this file.";
-  if (page === "status") return `Current configuration\n${[...(editable.strategy ?? []), ...(editable.limits ?? []), ...(editable.fees ?? []), ...(editable.timing ?? []), ...(editable.mode ?? []), ...(editable.restart ?? [])].map((key) => `${settingLabel(key)}: ${valueFor(key, snapshot)}${snapshot.pendingRestart.includes(key) ? " (after restart)" : " (next cycle)"}`).join("\n")}\nMode: ${snapshot.runtime.mode}${snapshot.runtime.mode === "live" ? ". Live transactions can move funds." : ". No live transactions."}`;
+  if (page === "protected") return `${pageTitle.protected}\n\n🔐 Wallet private keys, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, RPC_URL, and WS_URL can only be set through the environment.\n\n📁 STATE_DIR cannot be changed in chat because it stores these settings.`;
+  if (page === "status") return `${pageTitle.status}\n\n${[...(editable.strategy ?? []), ...(editable.limits ?? []), ...(editable.fees ?? []), ...(editable.timing ?? []), ...(editable.mode ?? []), ...(editable.restart ?? [])].map((key) => `${settingLabel(key)}: ${valueFor(key, snapshot)} · ${effectLabel(key, snapshot)}`).join("\n")}\n\n${snapshot.runtime.mode === "live" ? "⚠️ LIVE mode is active. Transactions can move funds." : "🧪 DRY RUN is active. The bot will not send transactions."}`;
   const keys = editable[page] ?? [];
-  return `${page === "menu" ? "Settings" : `${(page[0] ?? "").toUpperCase()}${page.slice(1)} settings`}\n${keys.map((key) => `${settingLabel(key)}: ${valueFor(key, snapshot)} (${snapshot.pendingRestart.includes(key) ? "after restart" : "next cycle"})`).join("\n")}${page === "mode" ? "\nLive transactions can move funds. Enabling live requires confirmation." : ""}`;
+  if (page === "menu") return `${pageTitle.menu}\n\nChoose a category to review values, change settings, and see when updates take effect.\n\n🟢 Runtime changes apply next cycle. Connection settings require a restart.`;
+  const intro: Record<string, string> = {
+    strategy: "Set position size and price tolerance.",
+    limits: "Limit deposit amounts and reserve SOL for transaction fees.",
+    fees: "Set transaction priority fees. The maximum fee caps the priority fee.",
+    timing: "Set polling delays and rebalance frequency limits.",
+    mode: "DRY RUN simulates actions. LIVE can send transactions and move funds.",
+    restart: "Changes are saved now and take effect after the bot restarts.",
+  };
+  return `${pageTitle[page] ?? "⚙️ SETTINGS"}\n${intro[page] ?? ""}\n\n${keys.map((key) => `• ${settingLabel(key)}: ${valueFor(key, snapshot)}\n  ↳ ${effectLabel(key, snapshot)}`).join("\n")}\n\n${page === "limits" ? "ℹ️ Token X/Y deposits use raw token units because token decimal counts vary. Minimum SOL reserve uses SOL." : ""}${page === "mode" ? "\n⚠️ Enabling LIVE requires a separate confirmation." : ""}`;
 };
 const pageKeyboard = (page: string) => {
-  if (page === "menu" || page === "status") return { inline_keyboard: [["strategy", "limits"], ["fees", "timing"], ["mode", "restart"], ["protected", "status"], ["reset:ask"]].map((row) => row.map((item) => ({ text: item === "reset:ask" ? "Reset" : `${item[0]?.toUpperCase() ?? ""}${item.slice(1)}`, callback_data: item === "reset:ask" ? item : `nav:${item}` }))) };
-  const buttons = page === "strategy" ? [["width:1", "width:2", "width:3"].map((value) => ({ text: `Width ${value.slice(-1)}`, callback_data: value })), ...(editable.strategy ?? []).filter((key) => key !== "width").map((key) => [{ text: `Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }])] : page === "mode" ? [[{ text: "Enable dry-run", callback_data: "mode:dry-run" }], [{ text: "Enable live…", callback_data: "edit:mode" }]] : (editable[page] ?? []).map((key) => [{ text: `Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }]);
-  return { inline_keyboard: [...buttons, [{ text: "Back", callback_data: "nav:menu" }]] };
+  if (page === "menu" || page === "status") return { inline_keyboard: [["strategy", "limits"], ["fees", "timing"], ["mode", "restart"], ["protected", "status"], ["reset:ask"]].map((row) => row.map((item) => ({ text: item === "reset:ask" ? "♻️ Reset" : pageTitle[item] ?? item, callback_data: item === "reset:ask" ? item : `nav:${item}` }))) };
+  const buttons = page === "strategy" ? [["width:1", "width:2", "width:3"].map((value) => ({ text: `Width ${value.slice(-1)}`, callback_data: value })), ...(editable.strategy ?? []).filter((key) => key !== "width").map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }])] : page === "mode" ? [[{ text: "🧪 Enable DRY RUN", callback_data: "mode:dry-run" }], [{ text: "⚠️ Configure LIVE…", callback_data: "edit:mode" }]] : (editable[page] ?? []).map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }]);
+  return { inline_keyboard: [...buttons, [{ text: "⬅️ Back to settings", callback_data: "nav:menu" }]] };
 };
 
 const isTelegramSuccess = (value: unknown): boolean =>
