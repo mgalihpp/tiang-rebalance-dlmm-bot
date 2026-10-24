@@ -98,8 +98,9 @@ the open transaction and unwraps it when the position closes.
   before opening.
 - `MAX_DEPLOY_X` and `MAX_DEPLOY_Y` cap the raw token amounts considered for a deposit.
 - The bot writes decisions and transaction results to `state/journal.jsonl`.
-- Optional Telegram alerts report startup, completed position actions, halts, and cycle
-  failures. Notifications are outbound only and cannot control trading.
+- Optional Telegram messages report startup, completed position actions, halts, and cycle
+  failures. In a private chat, `/settings` opens buttons to change the polling interval.
+  Other trading and wallet settings remain fixed by the environment.
 
 `MAX_SNAPSHOT_AGE_MS` does not detect a slow RPC response reliably. The snapshot
 timestamp is set after the chain reads finish, so a delayed response can still look fresh.
@@ -129,9 +130,13 @@ Environment variables can expose private keys through shell history, `docker ins
 or process logs. For live funds, use `WALLET_KEYPAIR_PATH` and restrict file access to
 the bot user.
 
-To enable Telegram alerts, create a bot with `@BotFather`, send it a message, and set
+To enable Telegram messages, create a bot with `@BotFather`, send it a message, and set
 `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. Keep the bot token private. The
-bot sends alerts only and does not accept trading commands.
+bot accepts `/settings` only from the private chat whose ID matches `TELEGRAM_CHAT_ID`.
+Use its buttons to set the polling interval to 1, 2, 4, 8, 15, or 30 seconds. The choice
+is saved to `runtime-settings.json` inside the configured `STATE_DIR` directory. The new
+interval applies to the running bot. The menu cannot change live trading, position width,
+slippage, or deployment limits.
 
 `bun run probe` only needs an RPC URL. Other modes build transactions and need a wallet
 with SOL for fees and rent. Dry-run does not remove that requirement.
@@ -151,7 +156,7 @@ with SOL for fees and rent. Dry-run does not remove that requirement.
 | `MIN_SOL_RESERVE_SOL` | `0.05` | SOL reserved for fees and rent. |
 | `PRIORITY_FEE_MICRO_LAMPORTS` | `50000` | Priority fee per compute unit. |
 | `MAX_PRIORITY_FEE_MICRO_LAMPORTS` | `2000000` | Maximum priority fee per compute unit. |
-| `POLL_INTERVAL_MS` | `4000` | Delay between polling cycles. |
+| `POLL_INTERVAL_MS` | `4000` | Initial delay between polling cycles. `/settings` can override it and save the choice in `STATE_DIR`. |
 | `DWELL_TICKS` | `2` | Consecutive cycles with the same active bin required before opening. |
 | `MAX_REBALANCES_PER_HOUR` | `20` | Rebalance limit checked while the wallet has no position. |
 | `MIN_REBALANCE_INTERVAL_MS` | `60000` | Minimum delay before opening while the wallet has no position. |

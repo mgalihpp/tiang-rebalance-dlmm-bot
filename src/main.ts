@@ -9,7 +9,8 @@ import { act, type ActContext } from "./chain/act.js";
 import { appendJournal, haltPath, isHalted, readHistory } from "./journal.js";
 import { makeLogger } from "./log.js";
 import { loadKeypair } from "./wallet.js";
-import { makeTelegramNotifier, type TelegramAlert } from "./telegram.js";
+import { makeTelegramNotifier, makeTelegramSettingsController, type TelegramAlert } from "./telegram.js";
+import { makeRuntimeSettingsStore } from "./settings.js";
 
 const policyOf = (config: Config): Policy => ({
   width: config.width,
@@ -78,6 +79,7 @@ const main = async (): Promise<number> => {
   const config = parsed.config;
   const log = makeLogger(config.logLevel);
   const telegram = makeTelegramNotifier(config.telegram, log);
+  const runtimeSettings = makeRuntimeSettingsStore(config.stateDir, config.pollIntervalMs, log);
   const once = process.argv.includes("--once");
   const probe = process.argv.includes("--probe");
 
@@ -135,12 +137,16 @@ const main = async (): Promise<number> => {
   };
 
   let stop = false;
+  const telegramAbort = new AbortController();
+  const telegramSettings = makeTelegramSettingsController(config.telegram, log, runtimeSettings);
   const requestStop = (): void => {
     stop = true;
+    telegramAbort.abort();
     log.info("shutdown requested; finishing the current cycle");
   };
   process.on("SIGINT", requestStop);
   process.on("SIGTERM", requestStop);
+  if (!once) void telegramSettings.start(telegramAbort.signal);
 
   const dwellRef = await Effect.runPromise(Ref.make({ binId: -1, ticks: 0 }));
 
@@ -213,7 +219,7 @@ const main = async (): Promise<number> => {
       ),
     );
     if (stop) return;
-    yield* Effect.sleep(`${config.pollIntervalMs} millis`);
+    yield* Effect.sleep(`${runtimeSettings.getPollIntervalMs()} millis`);
     yield* Effect.suspend(() => loop);
   });
 
@@ -222,6 +228,7 @@ const main = async (): Promise<number> => {
       Effect.catchAllCause((cause) => Effect.sync(() => log.error("bot stopped", { cause: Cause.pretty(cause) }))),
     ),
   );
+  telegramAbort.abort();
 
   log.info("bot finished");
   return 0;
