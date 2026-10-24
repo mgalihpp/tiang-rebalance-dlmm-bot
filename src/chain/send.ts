@@ -1,5 +1,6 @@
 import {
   ComputeBudgetProgram,
+  SendTransactionError,
   VersionedTransaction,
   type Connection,
   type Keypair,
@@ -151,8 +152,25 @@ export const sendTx = async (
 
   try {
     await refreshBlockhash(ctx, tx);
-    const signature = await sendAndConfirm(ctx, tx, signers, label);
-    return { _tag: "sent", signature };
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const signature = await sendAndConfirm(ctx, tx, signers, label);
+        return { _tag: "sent", signature };
+      } catch (error) {
+        const message = errorMessage(error);
+        if (error instanceof SendTransactionError) {
+          const logs = await error.getLogs(ctx.connection).catch(() => null);
+          ctx.log.warn("transaction send failed", { label, logs });
+        }
+        if (!message.includes("Blockhash not found") || attempt >= 2) throw error;
+        ctx.log.warn("blockhash not found; rebuilding transaction with a fresh blockhash", {
+          label,
+          attempt: attempt + 1,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        await refreshBlockhash(ctx, tx);
+      }
+    }
   } catch (error) {
     const message = errorMessage(error);
     const expired =
