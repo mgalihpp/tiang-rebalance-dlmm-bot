@@ -1,4 +1,4 @@
-import DLMM from "@meteora-ag/dlmm";
+import DLMM, { wrapPosition } from "@meteora-ag/dlmm";
 import { NATIVE_MINT, getAssociatedTokenAddress, getMint } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
 import {
@@ -110,6 +110,45 @@ const toPositionView = (position: {
   feeX: tokenAmount(BigInt(position.positionData.feeX.toString())),
   feeY: tokenAmount(BigInt(position.positionData.feeY.toString())),
 });
+
+export type PositionInventory = {
+  readonly exists: boolean;
+  readonly liquidityBins: number;
+  readonly feeBins: number;
+  readonly rewardBins: number;
+};
+
+const EMPTY_INVENTORY: PositionInventory = {
+  exists: false,
+  liquidityBins: 0,
+  feeBins: 0,
+  rewardBins: 0,
+};
+
+/**
+ * Reads a single position straight from chain. `exists` is false once the position account is
+ * gone; an existing account with every counter at zero holds nothing to withdraw or claim.
+ */
+export const positionInventory = async (
+  chain: Chain,
+  address: string,
+): Promise<PositionInventory> => {
+  const key = new PublicKey(address);
+  const account = await chain.connection.getAccountInfo(key, "confirmed");
+  if (account === null) return EMPTY_INVENTORY;
+
+  const state = wrapPosition(chain.pool.program, key, account);
+  return {
+    exists: true,
+    liquidityBins: state.liquidityShares().filter((share) => !share.isZero()).length,
+    feeBins: state
+      .feeInfos()
+      .filter((fee) => !fee.feeXPending.isZero() || !fee.feeYPending.isZero()).length,
+    rewardBins: state
+      .rewardInfos()
+      .filter((reward) => reward.rewardPendings.some((pending) => !pending.isZero())).length,
+  };
+};
 
 export const observe = async (chain: Chain): Promise<Snapshot> => {
   await chain.pool.refetchStates();

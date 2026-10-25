@@ -1,4 +1,4 @@
-import { StrategyType } from "@meteora-ag/dlmm";
+import { StrategyType, type LbPosition } from "@meteora-ag/dlmm";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
 import { targetRange } from "../domain/bins.js";
@@ -6,7 +6,7 @@ import { deployableAmounts } from "../domain/decide.js";
 import type { Config } from "../config.js";
 import type { Decision, PositionView, Range, Snapshot, TokenAmount } from "../domain/types.js";
 import { appendJournal } from "../journal.js";
-import { observe, type Chain } from "./snapshot.js";
+import { observe, positionInventory, type Chain } from "./snapshot.js";
 import { sendTx, type SendContext } from "./send.js";
 
 export type ActContext = SendContext & {
@@ -27,9 +27,39 @@ const positionStillExists = async (ctx: ActContext, address: string): Promise<bo
   return snapshot.positions.some((p) => p.address === address);
 };
 
+const closeEmpty = async (ctx: ActContext, address: string): Promise<readonly string[]> => {
+  const position = new PublicKey(address);
+  // closePosition only reads `publicKey`; the rest of LbPosition is never touched by the SDK.
+  const reference = { publicKey: position } as unknown as LbPosition;
+  const tx = await ctx.chain.pool.closePosition({
+    owner: ctx.owner.publicKey,
+    position: reference,
+  });
+  const outcome = await sendTx(ctx, tx, [ctx.owner], `close-empty:${address}`);
+  return outcome._tag === "sent" ? [outcome.signature] : [];
+};
+
 const closeExact = async (ctx: ActContext, position: PositionView): Promise<readonly string[]> => {
   const address = position.address;
   const signatures: string[] = [];
+
+  const inventory = await positionInventory(ctx.chain, address);
+  if (!inventory.exists) {
+    ctx.log.warn("position account is already gone; nothing to close", { address });
+    return signatures;
+  }
+  if (inventory.liquidityBins === 0 && inventory.feeBins === 0 && inventory.rewardBins === 0) {
+    // removeLiquidity crashes on an empty position: with shouldClaimAndClose it reads
+    // activeBins[0] before checking that any bin has something to withdraw or claim.
+    ctx.log.warn("position is empty; reclaiming its rent instead of removing liquidity", { address });
+    const emptySignatures = await closeEmpty(ctx, address);
+    if (!ctx.dryRun) {
+      await ctx.chain.pool.refetchStates();
+      ctx.log.info("empty position closed", { address, signatures: emptySignatures });
+    }
+    return emptySignatures;
+  }
+
   try {
     const transactions = await ctx.chain.pool.removeLiquidity({
       user: ctx.owner.publicKey,
@@ -101,6 +131,20 @@ const openAt = async (
 
   if (!ctx.dryRun) {
     await ctx.chain.pool.refetchStates();
+    const inventory = await positionInventory(ctx.chain, positionKeypair.publicKey.toBase58());
+    if (inventory.liquidityBins === 0) {
+      ctx.log.error("open landed with no liquidity in any bin; closing the empty position", {
+        position: positionKeypair.publicKey.toBase58(),
+        range: [range.lower, range.upper],
+        depositX: depositX.toString(),
+        depositY: depositY.toString(),
+      });
+      await closeEmpty(ctx, positionKeypair.publicKey.toBase58());
+      await ctx.chain.pool.refetchStates();
+      throw new Error(
+        `position ${positionKeypair.publicKey.toBase58()} opened with no liquidity (range ${range.lower}..${range.upper})`,
+      );
+    }
   }
   return { position: positionKeypair.publicKey, signature };
 };
