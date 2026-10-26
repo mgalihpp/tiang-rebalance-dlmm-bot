@@ -22,38 +22,58 @@ This bot can trade real funds. Read the risk notes before enabling `LIVE`.
 
 ## One cycle
 
-```text
-main() [1] ← one pool, one wallet
-├── observe(chain) [1a] ← read current chain state
-│   ├── pool.refetchStates() [1a1]
-│   ├── getPositionsByUserAndLbPair(owner) [1a2] ← positions and active bin
-│   ├── wallet: SOL, tokenX, tokenY [1a3]
-│   └── depositsEnabled [1a4]
-├── decide(snapshot, policy, history) [1b] ← pure function, no I/O
-│   ├── stale snapshot [1b1]
-│   │   └── Halt "stale-chain" [1b1a]
-│   ├── duplicate positions [1b2]
-│   │   └── Close all but the position nearest the active bin [1b2a]
-│   ├── one position [1b3]
-│   │   ├── outside range [1b3a]
-│   │   │   └── Rebalance [1b3a1]
-│   │   └── inside range [1b3b]
-│   │       └── Idle "in-range" [1b3b1]
-│   └── no position [1b4]
-│       ├── check SOL reserve, inventory, deposit status, cooldown, and dwell [1b4a]
-│       └── Open one side in a range selected for token X or Y [1b4b]
-├── act(ctx, decision) [1c]
-│   ├── Open [1c1]
-│   │   ├── generate a position keypair [1c1a]
-│   │   ├── initializePositionAndAddLiquidityByStrategy(...) [1c1b]
-│   │   └── simulate, sign, send, and confirm [1c1c]
-│   ├── Rebalance [1c2]
-│   │   ├── remove liquidity, claim fees, and close [1c2a]
-│   │   ├── observe again after close confirms [1c2b]
-│   │   └── open from the updated wallet balances [1c2c]
-│   └── Close [1c3]
-│       └── use the same close path [1c3a]
-└── write journal and sleep for pollIntervalMs [1d]
+```mermaid
+flowchart TD
+    Start([Start cycle<br/>one pool · one wallet]) --> Observe
+
+    subgraph O[1 · Observe chain]
+        Observe[Read current state] --> Pool[Refresh pool state]
+        Pool --> Positions[Read positions<br/>and active bin]
+        Positions --> Wallet[Read SOL · token X · token Y]
+        Wallet --> Deposits[Read deposit status]
+    end
+
+    Deposits --> Decide
+    subgraph D[2 · Decide · pure function, no I/O]
+        Decide{Snapshot stale?}
+        Decide -- Yes --> Halt[Halt · stale-chain]
+        Decide -- No --> Count{Positions?}
+        Count -- Duplicates --> Keep[Close extras;<br/>keep nearest active bin]
+        Count -- One --> Range{Outside range?}
+        Range -- No --> Idle[Idle · in-range]
+        Range -- Yes --> Rebalance[Rebalance]
+        Count -- None --> Gates{SOL reserve · inventory ·<br/>deposits · cooldown · dwell OK?}
+        Gates -- No --> Wait[Wait this cycle]
+        Gates -- Yes --> Choose[Choose token X or Y<br/>and its range]
+        Choose --> Open[Open one-sided position]
+    end
+
+    subgraph A[3 · Act]
+        Open --> Init[Generate position keypair<br/>and build open transaction]
+        Init --> Submit[Simulate · sign · send · confirm]
+        Rebalance --> Close[Remove liquidity · claim fees · close]
+        Close --> Refresh[Observe again after close confirms]
+        Refresh --> UpdatedOpen[Open using updated wallet balances]
+        Keep --> Cleanup[Close duplicate positions]
+    end
+
+    Halt --> Journal
+    Idle --> Journal
+    Wait --> Journal
+    Submit --> Journal
+    UpdatedOpen --> Journal
+    Cleanup --> Journal
+    Journal[Write journal] --> Sleep[Sleep pollIntervalMs]
+    Sleep --> Start
+
+    classDef observe fill:#e8f2ff,stroke:#4383c4,color:#142b43
+    classDef decide fill:#fff5dc,stroke:#ce9d31,color:#463611
+    classDef action fill:#e7f6ed,stroke:#479568,color:#173b28
+    classDef stop fill:#fde9e7,stroke:#cc6258,color:#4a211e
+    class Observe,Pool,Positions,Wallet,Deposits observe
+    class Decide,Count,Range,Gates decide
+    class Open,Init,Submit,Rebalance,Close,Refresh,UpdatedOpen,Keep,Cleanup action
+    class Halt stop
 ```
 
 `decide` does not keep state. The chain is the source of truth. If the process stops
