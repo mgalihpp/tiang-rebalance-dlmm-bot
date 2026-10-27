@@ -15,6 +15,7 @@ export type BotControls = {
   readonly pause: () => void;
   readonly resume: () => void;
   readonly shutdown: () => void;
+  readonly isPaused: () => boolean;
 };
 
 export type TelegramNotifier = {
@@ -80,9 +81,21 @@ export const makeTelegramSettingsController = (
     const call = (method: string, payload: unknown) => telegramCall(fetchMessage, telegram, method, payload, signal);
     const sendPage = async (page: string, text = "") => call("sendMessage", {
       chat_id: telegram.chatId,
-      text: text || renderPage(page, store.snapshot()),
-      reply_markup: pageKeyboard(page),
+      text: text || renderPage(page, store.snapshot(), controls?.isPaused()),
+      reply_markup: pageKeyboard(page, controls !== undefined),
     });
+    const sendControl = async () => {
+      const paused = controls?.isPaused() ?? false;
+      return call("sendMessage", {
+        chat_id: telegram.chatId,
+        text: `${pageTitle.control}\n\n${paused ? "⏸️ The bot is PAUSED. No new cycles run." : "▶️ The bot is RUNNING."}\n\nPause finishes the current cycle and then stops trading. Open positions are left as they are. Shutdown exits the process; it must be restarted on the server.`,
+        reply_markup: { inline_keyboard: [
+          [paused ? { text: "▶️ Resume", callback_data: "ctl:resume" } : { text: "⏸️ Pause", callback_data: "ctl:pause" }],
+          [{ text: "🛑 Shutdown process…", callback_data: "ctl:shutdown:ask" }],
+          [{ text: "⬅️ Back to settings", callback_data: "nav:menu" }],
+        ] },
+      });
+    };
     while (!signal.aborted) {
       try {
         if (!commandsRegistered) {
@@ -154,6 +167,24 @@ export const makeTelegramSettingsController = (
               const result = await store.set("mode", "live", true);
               await answer(result.ok ? "Live mode enabled" : result.message, !result.ok);
               await sendPage("mode");
+            } else if (controls && data === "nav:control") {
+              await answer("Bot control opened");
+              await sendControl();
+            } else if (controls && (data === "ctl:pause" || data === "ctl:resume")) {
+              if (data === "ctl:pause") controls.pause(); else controls.resume();
+              await answer(data === "ctl:pause" ? "Paused" : "Resumed");
+              await sendControl();
+            } else if (controls && data === "ctl:shutdown:ask") {
+              await answer("Confirm shutdown", true);
+              await call("sendMessage", { chat_id: telegram.chatId, text: "🛑 Shut the bot process down?\n\nThe current cycle finishes, then the process exits. You must restart it on the server; Telegram cannot bring it back.", reply_markup: { inline_keyboard: [[{ text: "🛑 Shut down", callback_data: "ctl:shutdown:confirm" }, { text: "Cancel", callback_data: "nav:control" }]] } });
+            } else if (controls && data === "ctl:shutdown:confirm") {
+              // Confirm the update with Telegram first, or the next start would re-read it and exit again.
+              offset = update.update_id + 1;
+              await call("getUpdates", { offset, timeout: 0 });
+              await answer("Shutting down");
+              await call("sendMessage", { chat_id: telegram.chatId, text: "🛑 Shutting down after the current cycle. Open positions are left as they are. Restart the process to bring the bot back." });
+              controls.shutdown();
+              return;
             } else if (/^nav:(menu|strategy|limits|fees|timing|mode|restart|protected|status)$/.test(data)) {
               const page = data.slice(4);
               await answer("Settings opened");
@@ -243,12 +274,13 @@ const pageTitle: Record<string, string> = {
   restart: "🔄 RESTART-REQUIRED SETTINGS",
   protected: "🔒 PROTECTED SETTINGS",
   status: "📊 CONFIGURATION STATUS",
+  control: "⏯️ BOT CONTROL",
 };
 const effectLabel = (key: SettingKey, snapshot: ReturnType<SettingsStore["snapshot"]>): string =>
   snapshot.pendingRestart.includes(key) ? "requires restart" : "applies next cycle";
-const renderPage = (page: string, snapshot: ReturnType<SettingsStore["snapshot"]>): string => {
+const renderPage = (page: string, snapshot: ReturnType<SettingsStore["snapshot"]>, paused?: boolean): string => {
   if (page === "protected") return `${pageTitle.protected}\n\n🔐 Wallet private keys, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, RPC_URL, and WS_URL can only be set through the environment.\n\n📁 STATE_DIR cannot be changed in chat because it stores these settings.`;
-  if (page === "status") return `${pageTitle.status}\n\n${[...(editable.strategy ?? []), ...(editable.limits ?? []), ...(editable.fees ?? []), ...(editable.timing ?? []), ...(editable.mode ?? []), ...(editable.restart ?? [])].map((key) => `${settingLabel(key)}: ${valueFor(key, snapshot)} · ${effectLabel(key, snapshot)}`).join("\n")}\n\n${snapshot.runtime.mode === "live" ? "⚠️ LIVE mode is active. Transactions can move funds." : "🧪 DRY RUN is active. The bot will not send transactions."}`;
+  if (page === "status") return `${pageTitle.status}\n\n${[...(editable.strategy ?? []), ...(editable.limits ?? []), ...(editable.fees ?? []), ...(editable.timing ?? []), ...(editable.mode ?? []), ...(editable.restart ?? [])].map((key) => `${settingLabel(key)}: ${valueFor(key, snapshot)} · ${effectLabel(key, snapshot)}`).join("\n")}\n\n${snapshot.runtime.mode === "live" ? "⚠️ LIVE mode is active. Transactions can move funds." : "🧪 DRY RUN is active. The bot will not send transactions."}${paused === undefined ? "" : paused ? "\n⏸️ The bot is PAUSED. No new cycles run." : "\n▶️ The bot is running."}`;
   const keys = editable[page] ?? [];
   if (page === "menu") return `${pageTitle.menu}\n\nChoose a category to review values, change settings, and see when updates take effect.\n\n🟢 Runtime changes apply next cycle. Connection settings require a restart.`;
   const intro: Record<string, string> = {
@@ -261,8 +293,8 @@ const renderPage = (page: string, snapshot: ReturnType<SettingsStore["snapshot"]
   };
   return `${pageTitle[page] ?? "⚙️ SETTINGS"}\n${intro[page] ?? ""}\n\n${keys.map((key) => `• ${settingLabel(key)}: ${valueFor(key, snapshot)}\n  ↳ ${effectLabel(key, snapshot)}`).join("\n")}\n\n${page === "limits" ? "ℹ️ Token X/Y deposits use raw token units because token decimal counts vary. Minimum SOL reserve uses SOL." : ""}${page === "mode" ? "\n⚠️ Enabling LIVE requires a separate confirmation." : ""}`;
 };
-const pageKeyboard = (page: string) => {
-  if (page === "menu" || page === "status") return { inline_keyboard: [["strategy", "limits"], ["fees", "timing"], ["mode", "restart"], ["protected", "status"], ["reset:ask"]].map((row) => row.map((item) => ({ text: item === "reset:ask" ? "♻️ Reset" : pageTitle[item] ?? item, callback_data: item === "reset:ask" ? item : `nav:${item}` }))) };
+const pageKeyboard = (page: string, hasControls = false) => {
+  if (page === "menu" || page === "status") return { inline_keyboard: [["strategy", "limits"], ["fees", "timing"], ["mode", "restart"], ["protected", "status"], ...(hasControls ? [["control"]] : []), ["reset:ask"]].map((row) => row.map((item) => ({ text: item === "reset:ask" ? "♻️ Reset" : pageTitle[item] ?? item, callback_data: item === "reset:ask" ? item : `nav:${item}` }))) };
   const buttons = page === "strategy" ? [["width:1", "width:3", "width:5", "width:10", "width:20"].map((value) => ({ text: `${value.slice(6)} bins`, callback_data: value })), ...(editable.strategy ?? []).map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }])] : page === "mode" ? [[{ text: "🧪 Enable DRY RUN", callback_data: "mode:dry-run" }], [{ text: "⚠️ Configure LIVE…", callback_data: "edit:mode" }]] : (editable[page] ?? []).map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }]);
   return { inline_keyboard: [...buttons, [{ text: "⬅️ Back to settings", callback_data: "nav:menu" }]] };
 };

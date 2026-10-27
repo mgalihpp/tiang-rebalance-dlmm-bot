@@ -53,7 +53,7 @@ describe("Telegram settings", () => {
     const { config, store } = setup();
     const controller = new AbortController();
     const requests: { method: string; body: Record<string, unknown> }[] = [];
-    const controls = { pause: vi.fn(), resume: vi.fn(), shutdown: vi.fn() };
+    const controls = { pause: vi.fn(), resume: vi.fn(), shutdown: vi.fn(), isPaused: () => false };
     const msg = (id: number, from: number, text: string) => ({ update_id: id, message: { chat: { id: 12345, type: "private" }, from: { id: from }, text } });
     const fetchMessage: typeof fetch = async (input, init) => {
       const method = String(input).split("/").pop() ?? "";
@@ -70,6 +70,34 @@ describe("Telegram settings", () => {
     expect(controls.shutdown).toHaveBeenCalledTimes(1);
     expect(requests.filter((r) => r.method === "getUpdates")[1]?.body).toMatchObject({ offset: 11, timeout: 0 });
     expect(requests.some((r) => r.method === "sendMessage" && String(r.body.text).includes("Paused"))).toBe(true);
+  });
+
+  it("menu has a Bot Control page with pause/resume buttons and a confirmed shutdown", async () => {
+    const { config, store } = setup();
+    const controller = new AbortController();
+    const requests: { method: string; body: Record<string, unknown> }[] = [];
+    let paused = false;
+    const controls = { pause: vi.fn(() => { paused = true; }), resume: vi.fn(() => { paused = false; }), shutdown: vi.fn(), isPaused: () => paused };
+    const cb = (id: number, data: string) => ({ update_id: id, callback_query: { id: `c${id}`, data, from: { id: 12345 }, message: { message_id: 1, chat: { id: 12345, type: "private" } } } });
+    const fetchMessage: typeof fetch = async (input, init) => {
+      const method = String(input).split("/").pop() ?? "";
+      requests.push({ method, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      if (method === "getUpdates" && requests.filter((r) => r.method === "getUpdates").length === 1) return Response.json({ ok: true, result: [
+        { update_id: 1, message: { chat: { id: 12345, type: "private" }, from: { id: 12345 }, text: "/settings" } },
+        cb(2, "nav:control"), cb(3, "ctl:pause"), cb(4, "ctl:resume"), cb(5, "ctl:shutdown:ask"), cb(6, "ctl:shutdown:confirm"),
+      ] });
+      if (method === "getUpdates") controller.abort();
+      return Response.json({ ok: true, result: [] });
+    };
+    await makeTelegramSettingsController(config, logger, store, fetchMessage, controls).start(controller.signal);
+    const sent = requests.filter((r) => r.method === "sendMessage");
+    expect(JSON.stringify(sent[0]?.body.reply_markup)).toContain("nav:control");
+    expect(JSON.stringify(sent[1]?.body.reply_markup)).toContain("ctl:pause");
+    expect(JSON.stringify(sent[2]?.body.reply_markup)).toContain("ctl:resume");
+    expect(controls.pause).toHaveBeenCalledTimes(1);
+    expect(controls.resume).toHaveBeenCalledTimes(1);
+    expect(controls.shutdown).toHaveBeenCalledTimes(1);
+    expect(requests.filter((r) => r.method === "getUpdates")[1]?.body).toMatchObject({ offset: 7, timeout: 0 });
   });
 
   it("does not read unauthorized inputs or accept an invalid callback", async () => {

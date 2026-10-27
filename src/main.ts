@@ -153,6 +153,7 @@ const main = async (): Promise<number> => {
       log.info("resumed via Telegram");
     },
     shutdown: requestStop,
+    isPaused: () => paused,
   });
   process.on("SIGINT", requestStop);
   process.on("SIGTERM", requestStop);
