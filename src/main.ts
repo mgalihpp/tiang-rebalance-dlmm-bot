@@ -11,6 +11,7 @@ import { makeLogger } from "./log.js";
 import { loadKeypair } from "./wallet.js";
 import { makeTelegramNotifier, makeTelegramSettingsController, type TelegramAlert } from "./telegram.js";
 import { makeSettingsStore, type RuntimeSettings } from "./settings.js";
+import { makeEnvReloader } from "./envReload.js";
 
 const policyOf = (config: Config): Policy => ({
   width: config.width,
@@ -92,6 +93,7 @@ const main = async (): Promise<number> => {
   const config = settings.currentConfig();
   const log = config.logLevel === envConfig.logLevel ? bootstrapLog : makeLogger(config.logLevel);
   const telegram = makeTelegramNotifier(config.telegram, log);
+  const envReloader = makeEnvReloader(".env", process.env, envConfig, (next) => settings.rebase(next), log);
   const once = process.argv.includes("--once");
   const probe = process.argv.includes("--probe");
 
@@ -162,6 +164,7 @@ const main = async (): Promise<number> => {
   const dwellRef = await Effect.runPromise(Ref.make({ binId: -1, ticks: 0 }));
 
   const runCycle = async (): Promise<{ halt: boolean }> => {
+    envReloader.check();
     const cycleConfig = configForRuntime(config, settings.snapshot().runtime);
     const policy = policyOf(cycleConfig);
     const actContext: ActContext = {
