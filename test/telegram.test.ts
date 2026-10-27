@@ -49,6 +49,29 @@ describe("Telegram settings", () => {
     expect(store.currentConfig().pollIntervalMs).toBe(8_000);
   });
 
+  it("/stop and /resume from the owner toggle the pause; /shutdown acknowledges the update and exits; others are ignored", async () => {
+    const { config, store } = setup();
+    const controller = new AbortController();
+    const requests: { method: string; body: Record<string, unknown> }[] = [];
+    const controls = { pause: vi.fn(), resume: vi.fn(), shutdown: vi.fn() };
+    const msg = (id: number, from: number, text: string) => ({ update_id: id, message: { chat: { id: 12345, type: "private" }, from: { id: from }, text } });
+    const fetchMessage: typeof fetch = async (input, init) => {
+      const method = String(input).split("/").pop() ?? "";
+      requests.push({ method, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      if (method === "getUpdates" && requests.filter((r) => r.method === "getUpdates").length === 1) return Response.json({ ok: true, result: [
+        msg(7, 999, "/stop"), msg(8, 12345, "/stop"), msg(9, 12345, "/resume"), msg(10, 12345, "/shutdown"),
+      ] });
+      if (method === "getUpdates") controller.abort();
+      return Response.json({ ok: true, result: [] });
+    };
+    await makeTelegramSettingsController(config, logger, store, fetchMessage, controls).start(controller.signal);
+    expect(controls.pause).toHaveBeenCalledTimes(1);
+    expect(controls.resume).toHaveBeenCalledTimes(1);
+    expect(controls.shutdown).toHaveBeenCalledTimes(1);
+    expect(requests.filter((r) => r.method === "getUpdates")[1]?.body).toMatchObject({ offset: 11, timeout: 0 });
+    expect(requests.some((r) => r.method === "sendMessage" && String(r.body.text).includes("Paused"))).toBe(true);
+  });
+
   it("does not read unauthorized inputs or accept an invalid callback", async () => {
     const { config, store } = setup();
     const controller = new AbortController();

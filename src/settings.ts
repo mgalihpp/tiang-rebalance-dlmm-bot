@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { MAX_WIDTH } from "./domain/bins.js";
 import type { Config } from "./config.js";
 import type { Logger } from "./log.js";
 
@@ -164,7 +165,7 @@ const parseSetting = (key: SettingKey, raw: string, config: Config): SettingPars
     try { return BigInt(value); } catch { return "Enter a nonnegative integer amount."; }
   };
   const parsed: unknown | string = (() => { switch (key) {
-    case "width": return value === "1" || value === "2" || value === "3" ? Number(value) : "Choose width 1, 2, or 3.";
+    case "width": return int(1, MAX_WIDTH);
     case "mode": return value === "live" || value === "dry-run" ? value : "Choose dry-run or live.";
     case "slippagePercent": { const n = Number(value); return Number.isFinite(n) && n >= 0.01 && n <= 10 ? n : "Enter a percentage from 0.01 to 10."; }
     case "minSolReserve": {

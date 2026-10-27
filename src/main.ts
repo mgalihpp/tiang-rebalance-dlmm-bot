@@ -136,13 +136,24 @@ const main = async (): Promise<number> => {
   await telegram.notify({ _tag: "started", pool: config.poolAddress, dryRun: config.dryRun });
 
   let stop = false;
+  let paused = false;
   const telegramAbort = new AbortController();
-  const telegramSettings = makeTelegramSettingsController(config, log, settings);
   const requestStop = (): void => {
     stop = true;
     telegramAbort.abort();
     log.info("shutdown requested; finishing the current cycle");
   };
+  const telegramSettings = makeTelegramSettingsController(config, log, settings, fetch, {
+    pause: () => {
+      paused = true;
+      log.info("paused via Telegram");
+    },
+    resume: () => {
+      paused = false;
+      log.info("resumed via Telegram");
+    },
+    shutdown: requestStop,
+  });
   process.on("SIGINT", requestStop);
   process.on("SIGTERM", requestStop);
   if (!once) void telegramSettings.start(telegramAbort.signal);
@@ -214,7 +225,7 @@ const main = async (): Promise<number> => {
 
   const loop: Effect.Effect<void> = Effect.gen(function* () {
     if (stop) return;
-    yield* Effect.tryPromise({ try: runCycle, catch: (error) => error }).pipe(
+    yield* Effect.tryPromise({ try: async () => (paused ? { halt: false } : runCycle()), catch: (error) => error }).pipe(
       Effect.catchAllCause((cause) =>
         Effect.promise(async (): Promise<{ halt: boolean }> => {
           const message = Cause.pretty(cause);
@@ -231,7 +242,15 @@ const main = async (): Promise<number> => {
       ),
     );
     if (stop) return;
-    yield* Effect.sleep(`${settings.snapshot().runtime.pollIntervalMs} millis`);
+    yield* Effect.raceFirst(
+      Effect.sleep(`${settings.snapshot().runtime.pollIntervalMs} millis`),
+      Effect.async<void>((resume) => {
+        if (telegramAbort.signal.aborted) return resume(Effect.void);
+        const done = () => resume(Effect.void);
+        telegramAbort.signal.addEventListener("abort", done, { once: true });
+        return Effect.sync(() => telegramAbort.signal.removeEventListener("abort", done));
+      }),
+    );
     yield* Effect.suspend(() => loop);
   });
 

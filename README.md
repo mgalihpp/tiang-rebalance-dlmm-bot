@@ -172,7 +172,7 @@ with SOL for fees and rent. Dry-run does not remove that requirement.
 | `POOL_ADDRESS` | Required | DLMM pool address. |
 | `WALLET_KEYPAIR_PATH` | Required unless `WALLET_SECRET_KEY` is set | JSON array or base58 key file. |
 | `WALLET_SECRET_KEY` | Empty | Alternative to a key file. Accepts a 64-byte base58 key, 32-byte base58 seed, or JSON array. |
-| `POSITION_WIDTH` | `1` | Position width in bins. Accepted values are `1`, `2`, and `3`. |
+| `POSITION_WIDTH` | `1` | Position width in bins. Any whole number from `1` to `70` (the most bins a standard Meteora position holds). Also editable from Telegram under Settings > Strategy. |
 | `SLIPPAGE_PERCENT` | `1` | Percent, not basis points. The SDK converts it to a bin tolerance. |
 | `MAX_DEPLOY_X`, `MAX_DEPLOY_Y` | No limit | Maximum raw token amount considered for a deposit. |
 | `MIN_SOL_RESERVE_SOL` | `0.05` | SOL reserved for fees and rent. |

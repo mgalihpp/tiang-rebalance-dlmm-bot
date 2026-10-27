@@ -64,8 +64,14 @@ describe("parseConfig", () => {
     expect(ok({ ...base, POSITION_WIDTH: "3" }).width).toBe(3);
   });
 
-  it("rejects a width outside 1..3", () => {
-    expect(parseConfig({ ...base, POSITION_WIDTH: "4" })._tag).toBe("err");
+  it("accepts any width from 1 to 70", () => {
+    expect(ok({ ...base, POSITION_WIDTH: "10" }).width).toBe(10);
+    expect(ok({ ...base, POSITION_WIDTH: "70" }).width).toBe(70);
+  });
+
+  it("rejects a width outside 1..70", () => {
+    expect(parseConfig({ ...base, POSITION_WIDTH: "71" })._tag).toBe("err");
+    expect(parseConfig({ ...base, POSITION_WIDTH: "0" })._tag).toBe("err");
   });
 
   it("rejects a priority fee above the cap", () => {

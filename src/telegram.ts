@@ -11,6 +11,12 @@ export type TelegramAlert =
   | { readonly _tag: "halt"; readonly reason: string }
   | { readonly _tag: "cycle-error"; readonly message: string };
 
+export type BotControls = {
+  readonly pause: () => void;
+  readonly resume: () => void;
+  readonly shutdown: () => void;
+};
+
 export type TelegramNotifier = {
   readonly notify: (alert: TelegramAlert) => Promise<void>;
 };
@@ -61,6 +67,7 @@ export const makeTelegramSettingsController = (
   log: Logger,
   store: SettingsStore = makeSettingsStore(config, log),
   fetchMessage: typeof fetch = fetch,
+  controls?: BotControls,
 ): { start(signal: AbortSignal): Promise<void> } => ({
   start: async (signal) => {
     const telegram = config.telegram;
@@ -79,7 +86,7 @@ export const makeTelegramSettingsController = (
     while (!signal.aborted) {
       try {
         if (!commandsRegistered) {
-          await call("setMyCommands", { commands: [{ command: "settings", description: "Configure bot settings" }, { command: "status", description: "View active configuration" }] });
+          await call("setMyCommands", { commands: [{ command: "settings", description: "Configure bot settings" }, { command: "status", description: "View active configuration" }, ...(controls ? [{ command: "stop", description: "Pause the bot" }, { command: "resume", description: "Resume the bot" }, { command: "shutdown", description: "Shut the process down" }] : [])] });
           commandsRegistered = true;
         }
         const body = record(await call("getUpdates", {
@@ -97,7 +104,21 @@ export const makeTelegramSettingsController = (
             const from = record(message.from);
             if (chat?.type === "private" && String(chat.id) === telegram.chatId && String(from?.id) === telegram.chatId && typeof message.text === "string") {
               const text = message.text.trim();
-              if (/^\/(settings|status)(?:@\w+)?$/.test(text)) {
+              const command = controls ? /^\/(stop|resume|shutdown)(?:@\w+)?$/.exec(text)?.[1] : undefined;
+              if (controls && command === "stop") {
+                controls.pause();
+                await call("sendMessage", { chat_id: telegram.chatId, text: "⏸️ Paused. The current cycle finishes and no new cycles run. Open positions are left as they are.\n\nSend /resume to continue." });
+              } else if (controls && command === "resume") {
+                controls.resume();
+                await call("sendMessage", { chat_id: telegram.chatId, text: "▶️ Resumed. The bot runs its next cycle shortly." });
+              } else if (controls && command === "shutdown") {
+                // Confirm the update with Telegram first, or the next start would re-read /shutdown and exit again.
+                offset = update.update_id + 1;
+                await call("getUpdates", { offset, timeout: 0 });
+                await call("sendMessage", { chat_id: telegram.chatId, text: "🛑 Shutting down after the current cycle. Open positions are left as they are. Restart the process to bring the bot back." });
+                controls.shutdown();
+                return;
+              } else if (/^\/(settings|status)(?:@\w+)?$/.test(text)) {
                 latestPrompt = null;
                 await sendPage(/^\/status(?:@\w+)?$/.test(text) ? "status" : "menu");
               } else {
@@ -148,7 +169,7 @@ export const makeTelegramSettingsController = (
             } else if (data === "reset:ask") {
               await answer("Confirm reset", true);
               await call("sendMessage", { chat_id: telegram.chatId, text: "♻️ Reset all settings to their environment defaults?", reply_markup: { inline_keyboard: [[{ text: "Reset all settings", callback_data: "reset:confirm" }, { text: "Cancel", callback_data: "nav:menu" }]] } });
-            } else if (/^width:[123]$/.test(data)) {
+            } else if (/^width:\d{1,2}$/.test(data)) {
               const result = await store.set("width", data.slice(6));
               await answer(result.ok ? "Width saved" : result.message, !result.ok);
               await sendPage("strategy");
@@ -192,7 +213,7 @@ const abortableDelay = (signal: AbortSignal, milliseconds: number): Promise<void
 
 const validSettingKey = (key: string): key is SettingKey => ["width", "slippagePercent", "maxDeployX", "maxDeployY", "minSolReserve", "priorityFeeMicroLamports", "maxPriorityFeeMicroLamports", "pollIntervalMs", "dwellTicks", "maxRebalancesPerHour", "minRebalanceIntervalMs", "maxSnapshotAgeMs", "mode", "poolAddress", "walletKeypairPath", "logLevel", "telegramTimeoutMs"].includes(key);
 const categoryFor = (key: SettingKey): string => ["poolAddress", "walletKeypairPath", "logLevel", "telegramTimeoutMs"].includes(key) ? "restart" : key === "mode" ? "mode" : ["width", "slippagePercent"].includes(key) ? "strategy" : ["maxDeployX", "maxDeployY", "minSolReserve"].includes(key) ? "limits" : ["priorityFeeMicroLamports", "maxPriorityFeeMicroLamports"].includes(key) ? "fees" : "timing";
-const settingLabel = (key: SettingKey): string => ({ width: "position width", slippagePercent: "slippage limit (%)", maxDeployX: "maximum token X deposit (raw units)", maxDeployY: "maximum token Y deposit (raw units)", minSolReserve: "minimum SOL reserve", priorityFeeMicroLamports: "priority fee (micro-lamports)", maxPriorityFeeMicroLamports: "maximum priority fee (micro-lamports)", pollIntervalMs: "poll interval (ms)", dwellTicks: "stable cycles before opening", maxRebalancesPerHour: "maximum rebalances per hour", minRebalanceIntervalMs: "minimum time between rebalances (ms)", maxSnapshotAgeMs: "maximum snapshot age (ms)", mode: "trading mode", poolAddress: "pool address", walletKeypairPath: "wallet keypair file path", logLevel: "log level", telegramTimeoutMs: "Telegram timeout (ms)" })[key];
+const settingLabel = (key: SettingKey): string => ({ width: "position width (bins, 1-70)", slippagePercent: "slippage limit (%)", maxDeployX: "maximum token X deposit (raw units)", maxDeployY: "maximum token Y deposit (raw units)", minSolReserve: "minimum SOL reserve", priorityFeeMicroLamports: "priority fee (micro-lamports)", maxPriorityFeeMicroLamports: "maximum priority fee (micro-lamports)", pollIntervalMs: "poll interval (ms)", dwellTicks: "stable cycles before opening", maxRebalancesPerHour: "maximum rebalances per hour", minRebalanceIntervalMs: "minimum time between rebalances (ms)", maxSnapshotAgeMs: "maximum snapshot age (ms)", mode: "trading mode", poolAddress: "pool address", walletKeypairPath: "wallet keypair file path", logLevel: "log level", telegramTimeoutMs: "Telegram timeout (ms)" })[key];
 const valueFor = (key: SettingKey, snapshot: ReturnType<SettingsStore["snapshot"]>): string => {
   const runtimeValue = snapshot.runtime[key as keyof typeof snapshot.runtime];
   const restartValue = snapshot.restart[key as keyof typeof snapshot.restart];
@@ -231,7 +252,7 @@ const renderPage = (page: string, snapshot: ReturnType<SettingsStore["snapshot"]
   const keys = editable[page] ?? [];
   if (page === "menu") return `${pageTitle.menu}\n\nChoose a category to review values, change settings, and see when updates take effect.\n\n🟢 Runtime changes apply next cycle. Connection settings require a restart.`;
   const intro: Record<string, string> = {
-    strategy: "Set position size and price tolerance.",
+    strategy: "Set position width in bins (1-70) and price tolerance. Tap a preset or edit for a custom value.",
     limits: "Limit deposit amounts and reserve SOL for transaction fees.",
     fees: "Set transaction priority fees. The maximum fee caps the priority fee.",
     timing: "Set polling delays and rebalance frequency limits.",
@@ -242,7 +263,7 @@ const renderPage = (page: string, snapshot: ReturnType<SettingsStore["snapshot"]
 };
 const pageKeyboard = (page: string) => {
   if (page === "menu" || page === "status") return { inline_keyboard: [["strategy", "limits"], ["fees", "timing"], ["mode", "restart"], ["protected", "status"], ["reset:ask"]].map((row) => row.map((item) => ({ text: item === "reset:ask" ? "♻️ Reset" : pageTitle[item] ?? item, callback_data: item === "reset:ask" ? item : `nav:${item}` }))) };
-  const buttons = page === "strategy" ? [["width:1", "width:2", "width:3"].map((value) => ({ text: `Width ${value.slice(-1)}`, callback_data: value })), ...(editable.strategy ?? []).filter((key) => key !== "width").map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }])] : page === "mode" ? [[{ text: "🧪 Enable DRY RUN", callback_data: "mode:dry-run" }], [{ text: "⚠️ Configure LIVE…", callback_data: "edit:mode" }]] : (editable[page] ?? []).map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }]);
+  const buttons = page === "strategy" ? [["width:1", "width:3", "width:5", "width:10", "width:20"].map((value) => ({ text: `${value.slice(6)} bins`, callback_data: value })), ...(editable.strategy ?? []).map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }])] : page === "mode" ? [[{ text: "🧪 Enable DRY RUN", callback_data: "mode:dry-run" }], [{ text: "⚠️ Configure LIVE…", callback_data: "edit:mode" }]] : (editable[page] ?? []).map((key) => [{ text: `✏️ Edit ${settingLabel(key)}`, callback_data: `edit:${key}` }]);
   return { inline_keyboard: [...buttons, [{ text: "⬅️ Back to settings", callback_data: "nav:menu" }]] };
 };
 

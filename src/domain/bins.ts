@@ -1,6 +1,9 @@
 import { type BinId, type Range, binId } from "./types.js";
 
-export type Width = 1 | 2 | 3;
+// A standard Meteora position holds at most 70 bins.
+export const MAX_WIDTH = 70;
+
+export type Width = number;
 
 export const makeRange = (lower: BinId, upper: BinId): Range => {
   if (upper < lower) {

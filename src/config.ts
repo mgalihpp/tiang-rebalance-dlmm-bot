@@ -1,4 +1,4 @@
-import type { Width } from "./domain/bins.js";
+import { MAX_WIDTH, type Width } from "./domain/bins.js";
 
 export type WalletSource =
   | { readonly kind: "file"; readonly path: string }
@@ -156,7 +156,7 @@ export const parseConfig = (env: Env): ParseResult => {
   else if (keypairPath !== null) wallet = { kind: "file", path: keypairPath };
   else errors.push({ field: "WALLET_KEYPAIR_PATH", message: "required (or WALLET_SECRET_KEY)" });
 
-  const width = collect(readEnum(env, "POSITION_WIDTH", ["1", "2", "3"] as const, "1"));
+  const width = collect(readInt(env, "POSITION_WIDTH", 1, { min: 1, max: MAX_WIDTH }));
   const slippagePercent = collect(readFloat(env, "SLIPPAGE_PERCENT", 1, { min: 0.01, max: 10 }));
   const maxDeployX = collect(readBigInt(env, "MAX_DEPLOY_X", null));
   const maxDeployY = collect(readBigInt(env, "MAX_DEPLOY_Y", null));
@@ -229,7 +229,7 @@ export const parseConfig = (env: Env): ParseResult => {
       wsUrl,
       poolAddress: poolAddress as string,
       wallet: wallet as WalletSource,
-      width: Number(width) as Width,
+      width: width as Width,
       slippagePercent: slippagePercent as number,
       maxDeployX,
       maxDeployY,

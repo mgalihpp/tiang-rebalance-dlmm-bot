@@ -29,6 +29,15 @@ describe("settings store", () => {
     expect(makeSettingsStore(config, logger).currentConfig().priorityFeeMicroLamports).toBe(100_000n);
   });
 
+  it("accepts a custom width from 1 to 70 and rejects the rest", async () => {
+    const { store } = make();
+    expect((await store.set("width", "25")).ok).toBe(true);
+    expect(store.currentConfig().width).toBe(25);
+    expect((await store.set("width", "70")).ok).toBe(true);
+    for (const bad of ["0", "71", "2.5", "abc"]) expect((await store.set("width", bad)).ok).toBe(false);
+    expect(store.currentConfig().width).toBe(70);
+  });
+
   it("rejects range and cross-field violations without changing current values", async () => {
     const { store } = make();
     expect((await store.set("dwellTicks", "61")).ok).toBe(false);
