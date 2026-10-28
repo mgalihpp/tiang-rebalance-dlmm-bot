@@ -25,6 +25,7 @@ export type SettingsStore = Readonly<{
   snapshot(): SettingsSnapshot;
   set(key: SettingKey, rawValue: string, confirmLive?: boolean): Promise<SettingsUpdateResult>;
   reset(): Promise<void>;
+  rebase(next: Config): readonly SettingKey[];
 }>;
 
 const runtimeKeys = ["width", "slippagePercent", "maxDeployX", "maxDeployY", "minSolReserve", "priorityFeeMicroLamports", "maxPriorityFeeMicroLamports", "pollIntervalMs", "dwellTicks", "maxRebalancesPerHour", "minRebalanceIntervalMs", "maxSnapshotAgeMs", "mode"] as const;
@@ -34,7 +35,7 @@ const safeError = (error: unknown): string => error instanceof Error ? error.nam
 
 export const makeSettingsStore = (config: Config, log: Logger): SettingsStore => {
   const path = join(config.stateDir, "runtime-settings.json");
-  const base = config;
+  let base = config;
   const initialRestart = {
     poolAddress: config.poolAddress,
     walletKeypairPath: config.wallet.kind === "file" ? config.wallet.path : "environment wallet",
@@ -92,6 +93,34 @@ export const makeSettingsStore = (config: Config, log: Logger): SettingsStore =>
     const pendingRestart = restartKeys.filter((key) => restart[key] !== initialRestart[key]);
     return { runtime, restart: restart as SettingsSnapshot["restart"], pendingRestart };
   };
+  const persist = (next: Record<string, unknown>): void => {
+    mkdirSync(config.stateDir, { recursive: true });
+    const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      writeFileSync(temp, `${JSON.stringify({ version: 2, values: serialize(next) }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+      renameSync(temp, path);
+    } catch (error) {
+      try { unlinkSync(temp); } catch { }
+      throw error;
+    }
+  };
+  // Applies a freshly parsed .env config. A runtime key whose .env value changed
+  // drops its stored override, so the newest edit wins over older Telegram changes.
+  const rebase = (next: Config): readonly SettingKey[] => {
+    const modeOf = (c: Config): string => c.live && !c.dryRun ? "live" : "dry-run";
+    const changed = runtimeKeys.filter((key) => key === "mode" ? modeOf(base) !== modeOf(next) : base[key] !== next[key]);
+    base = next;
+    const overridden = changed.filter((key) => key in values);
+    if (overridden.length === 0) return changed;
+    const kept = Object.fromEntries(Object.entries(values).filter(([key]) => !overridden.includes(key as typeof runtimeKeys[number])));
+    try {
+      persist(kept);
+      values = kept;
+    } catch (error) {
+      log.warn("Runtime settings could not be saved after .env reload", { error: safeError(error) });
+    }
+    return changed;
+  };
   const set = async (key: SettingKey, rawValue: string, confirmLive = false): Promise<SettingsUpdateResult> => {
     const parsed = parseSetting(key, rawValue, makeConfig());
     if (!parsed.ok) return { ok: false, message: parsed.message };
@@ -102,15 +131,7 @@ export const makeSettingsStore = (config: Config, log: Logger): SettingsStore =>
     const maximum = key === "maxPriorityFeeMicroLamports" ? parsed.value as bigint : current.maxPriorityFeeMicroLamports;
     if (priority > maximum) return { ok: false, message: "Priority fee must be less than or equal to the maximum priority fee." };
     try {
-      mkdirSync(config.stateDir, { recursive: true });
-      const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
-      try {
-        writeFileSync(temp, `${JSON.stringify({ version: 2, values: serialize(next) }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-        renameSync(temp, path);
-      } catch (error) {
-        try { unlinkSync(temp); } catch { }
-        throw error;
-      }
+      persist(next);
       values = next;
       return { ok: true, snapshot: snapshot() };
     } catch (error) {
@@ -118,7 +139,7 @@ export const makeSettingsStore = (config: Config, log: Logger): SettingsStore =>
       return { ok: false, message: "Could not save this setting. The current value is unchanged." };
     }
   };
-  return { currentConfig: makeConfig, snapshot, set, reset: async () => {
+  return { currentConfig: makeConfig, snapshot, set, rebase, reset: async () => {
     mkdirSync(config.stateDir, { recursive: true });
     const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(temp, "{\"version\":2,\"values\":{}}\n", { encoding: "utf8", flag: "wx" });
