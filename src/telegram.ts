@@ -7,6 +7,7 @@ type CompletedAction = Extract<ActResult, { readonly _tag: "opened" | "closed" |
 
 export type TelegramAlert =
   | { readonly _tag: "started"; readonly pool: string; readonly dryRun: boolean }
+  | { readonly _tag: "reconnected"; readonly pool: string; readonly owner: string }
   | { readonly _tag: "action"; readonly result: CompletedAction }
   | { readonly _tag: "halt"; readonly reason: string }
   | { readonly _tag: "cycle-error"; readonly message: string };
@@ -26,6 +27,8 @@ const formatAlert = (alert: TelegramAlert): string => {
   switch (alert._tag) {
     case "started":
       return `DLMM bot started\nMode: ${alert.dryRun ? "DRY RUN, no transactions sent" : "LIVE, transactions may be sent"}\nPool: ${alert.pool}`;
+    case "reconnected":
+      return `Connection settings changed, bot reconnected\nPool: ${alert.pool}\nWallet: ${alert.owner}\nPositions in the previous pool or wallet are no longer managed.`;
     case "action":
       switch (alert.result._tag) {
         case "opened":
@@ -141,7 +144,7 @@ export const makeTelegramSettingsController = (
                   if (typeof reply?.message_id === "number") prompts.delete(reply.message_id);
                   latestPrompt = null;
                   const result = await store.set(key, text);
-                  if (result.ok) await sendPage(categoryFor(key), `✅ Saved. This change ${result.snapshot.pendingRestart.includes(key) ? "takes effect after restart" : "applies next cycle"}.\n\n${renderPage(categoryFor(key), result.snapshot)}`);
+                  if (result.ok) await sendPage(categoryFor(key), `✅ Saved. This change applies next cycle, no restart needed.\n\n${renderPage(categoryFor(key), result.snapshot)}`);
                   else if (result.confirmationRequired && key === "mode" && text === "live") {
                     liveConfirmation = { key, expires: Date.now() + 60_000 };
                     await call("sendMessage", { chat_id: telegram.chatId, text: "⚠️ LIVE mode can send transactions and move funds from your wallet.\n\nConfirm only if you intend to enable live trading.", reply_markup: { inline_keyboard: [[{ text: "⚠️ Enable LIVE", callback_data: "confirm:live" }, { text: "Cancel", callback_data: "nav:mode" }]] } });
@@ -271,25 +274,24 @@ const pageTitle: Record<string, string> = {
   fees: "💸 TRANSACTION FEES",
   timing: "⏱️ TIMING & FREQUENCY",
   mode: "🚦 TRADING MODE",
-  restart: "🔄 RESTART-REQUIRED SETTINGS",
+  restart: "🔌 CONNECTION SETTINGS",
   protected: "🔒 PROTECTED SETTINGS",
   status: "📊 CONFIGURATION STATUS",
   control: "⏯️ BOT CONTROL",
 };
-const effectLabel = (key: SettingKey, snapshot: ReturnType<SettingsStore["snapshot"]>): string =>
-  snapshot.pendingRestart.includes(key) ? "requires restart" : "applies next cycle";
+const effectLabel = (_key: SettingKey, _snapshot: ReturnType<SettingsStore["snapshot"]>): string => "applies next cycle";
 const renderPage = (page: string, snapshot: ReturnType<SettingsStore["snapshot"]>, paused?: boolean): string => {
-  if (page === "protected") return `${pageTitle.protected}\n\n🔐 Wallet private keys, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, RPC_URL, and WS_URL can only be set through the environment.\n\n📁 STATE_DIR cannot be changed in chat because it stores these settings.`;
+  if (page === "protected") return `${pageTitle.protected}\n\n🔐 Wallet private keys, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, RPC_URL, and WS_URL can only be set through the .env file. The bot reloads .env automatically, no restart needed.\n\n📁 STATE_DIR cannot be changed in chat because it stores these settings.`;
   if (page === "status") return `${pageTitle.status}\n\n${[...(editable.strategy ?? []), ...(editable.limits ?? []), ...(editable.fees ?? []), ...(editable.timing ?? []), ...(editable.mode ?? []), ...(editable.restart ?? [])].map((key) => `${settingLabel(key)}: ${valueFor(key, snapshot)} · ${effectLabel(key, snapshot)}`).join("\n")}\n\n${snapshot.runtime.mode === "live" ? "⚠️ LIVE mode is active. Transactions can move funds." : "🧪 DRY RUN is active. The bot will not send transactions."}${paused === undefined ? "" : paused ? "\n⏸️ The bot is PAUSED. No new cycles run." : "\n▶️ The bot is running."}`;
   const keys = editable[page] ?? [];
-  if (page === "menu") return `${pageTitle.menu}\n\nChoose a category to review values, change settings, and see when updates take effect.\n\n🟢 Runtime changes apply next cycle. Connection settings require a restart.`;
+  if (page === "menu") return `${pageTitle.menu}\n\nChoose a category to review values, change settings, and see when updates take effect.\n\n🟢 All changes apply next cycle. No restart needed.`;
   const intro: Record<string, string> = {
     strategy: "Set position width in bins (1-70) and price tolerance. Tap a preset or edit for a custom value.",
     limits: "Limit deposit amounts and reserve SOL for transaction fees.",
     fees: "Set transaction priority fees. The maximum fee caps the priority fee.",
     timing: "Set polling delays and rebalance frequency limits.",
     mode: "DRY RUN simulates actions. LIVE can send transactions and move funds.",
-    restart: "Changes are saved now and take effect after the bot restarts.",
+    restart: "Pool, wallet, log level and Telegram timeout apply on the next cycle. The bot reconnects by itself, no restart needed. Positions in the previous pool or wallet are no longer managed.",
   };
   return `${pageTitle[page] ?? "⚙️ SETTINGS"}\n${intro[page] ?? ""}\n\n${keys.map((key) => `• ${settingLabel(key)}: ${valueFor(key, snapshot)}\n  ↳ ${effectLabel(key, snapshot)}`).join("\n")}\n\n${page === "limits" ? "ℹ️ Token X/Y deposits use raw token units because token decimal counts vary. Minimum SOL reserve uses SOL." : ""}${page === "mode" ? "\n⚠️ Enabling LIVE requires a separate confirmation." : ""}`;
 };

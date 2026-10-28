@@ -18,7 +18,7 @@ const setup = () => {
   const parsed = parseConfig(env);
   if (parsed._tag !== "ok") throw new Error("bad env");
   const store = makeSettingsStore(parsed.config, logger);
-  const reloader = makeEnvReloader(file, env, parsed.config, (next: Config) => store.rebase(next), logger);
+  const reloader = makeEnvReloader(file, env, (next: Config) => store.rebase(next), logger);
   const edit = (extra: string, secs: number) => {
     writeFileSync(file, body(extra));
     utimesSync(file, secs, secs);
@@ -47,5 +47,25 @@ describe("env hot reload", () => {
     edit("POSITION_WIDTH=7", 2_000_000_002);
     reloader.check();
     expect(store.currentConfig().width).toBe(7);
+  });
+});
+
+describe("env hot reload of connection settings", () => {
+  it("applies pool address and log level from .env live", () => {
+    const { store, reloader, edit } = setup();
+    const other = "11111111111111111111111111111111";
+    edit(`POOL_ADDRESS=${other}\nLOG_LEVEL=debug`, 2_000_000_010);
+    reloader.check();
+    const next = store.currentConfig();
+    expect(next.poolAddress).toBe(other);
+    expect(next.logLevel).toBe("debug");
+  });
+
+  it("lets a new .env pool address override an older Telegram change", async () => {
+    const { store, reloader, edit } = setup();
+    await store.set("poolAddress", "22222222222222222222222222222222");
+    edit(`POOL_ADDRESS=33333333333333333333333333333333`, 2_000_000_011);
+    reloader.check();
+    expect(store.currentConfig().poolAddress).toBe("33333333333333333333333333333333");
   });
 });

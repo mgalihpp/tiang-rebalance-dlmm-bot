@@ -4,12 +4,13 @@ import { Cause, Effect, Ref } from "effect";
 import { parseConfig, type Config } from "./config.js";
 import { decide, type Policy } from "./domain/decide.js";
 import type { Decision } from "./domain/types.js";
-import { makeChain, observe } from "./chain/snapshot.js";
+import { makeChain, observe, type Chain } from "./chain/snapshot.js";
+import type { Keypair } from "@solana/web3.js";
 import { act, type ActContext } from "./chain/act.js";
 import { appendJournal, haltPath, isHalted, readHistory } from "./journal.js";
-import { makeLogger } from "./log.js";
+import { makeLogger, type Logger } from "./log.js";
 import { loadKeypair } from "./wallet.js";
-import { makeTelegramNotifier, makeTelegramSettingsController, type TelegramAlert } from "./telegram.js";
+import { makeTelegramNotifier, makeTelegramSettingsController, type TelegramAlert, type TelegramNotifier } from "./telegram.js";
 import { makeSettingsStore, type RuntimeSettings } from "./settings.js";
 import { makeEnvReloader } from "./envReload.js";
 
@@ -88,12 +89,26 @@ const main = async (): Promise<number> => {
   }
 
   const envConfig = parsed.config;
-  const bootstrapLog = makeLogger(envConfig.logLevel);
-  const settings = makeSettingsStore(envConfig, bootstrapLog);
-  const config = settings.currentConfig();
-  const log = config.logLevel === envConfig.logLevel ? bootstrapLog : makeLogger(config.logLevel);
-  const telegram = makeTelegramNotifier(config.telegram, log);
-  const envReloader = makeEnvReloader(".env", process.env, envConfig, (next) => settings.rebase(next), log);
+  // Every connection-level setting is re-applied between cycles, so these are swappable.
+  let logger: Logger = makeLogger(envConfig.logLevel);
+  let logLevel = envConfig.logLevel;
+  const log: Logger = {
+    debug: (m, f) => logger.debug(m, f),
+    info: (m, f) => logger.info(m, f),
+    warn: (m, f) => logger.warn(m, f),
+    error: (m, f) => logger.error(m, f),
+  };
+  const settings = makeSettingsStore(envConfig, log);
+  let config = settings.currentConfig();
+  const applyLogLevel = (): void => {
+    if (config.logLevel === logLevel) return;
+    logLevel = config.logLevel;
+    logger = makeLogger(logLevel);
+  };
+  applyLogLevel();
+  let notifier = makeTelegramNotifier(config.telegram, log);
+  const telegram: TelegramNotifier = { notify: (alert) => notifier.notify(alert) };
+  const envReloader = makeEnvReloader(".env", process.env, (next) => settings.rebase(next), log);
   const once = process.argv.includes("--once");
   const probe = process.argv.includes("--probe");
 
@@ -118,10 +133,17 @@ const main = async (): Promise<number> => {
     log.warn("secret key comes from the environment; prefer WALLET_KEYPAIR_PATH to limit exposure");
   }
 
-  const chain = await makeChain(config.rpcUrl, config.poolAddress, owner.publicKey);
+  type Link = { readonly key: string; readonly owner: Keypair; readonly chain: Chain };
+  const linkKey = (c: Config): string => JSON.stringify([c.rpcUrl, c.poolAddress, c.wallet]);
+  let link: Link = {
+    key: linkKey(config),
+    owner,
+    chain: await makeChain(config.rpcUrl, config.poolAddress, owner.publicKey),
+  };
+  const chain = link.chain;
 
   if (probe) {
-    const snapshot = await observe(chain);
+    const snapshot = await observe(link.chain);
     process.stdout.write(`${JSON.stringify(serializableSnapshot(snapshot), null, 2)}\n`);
     return 0;
   }
@@ -145,7 +167,7 @@ const main = async (): Promise<number> => {
     telegramAbort.abort();
     log.info("shutdown requested; finishing the current cycle");
   };
-  const telegramSettings = makeTelegramSettingsController(config, log, settings, fetch, {
+  const controls = {
     pause: () => {
       paused = true;
       log.info("paused via Telegram");
@@ -156,29 +178,70 @@ const main = async (): Promise<number> => {
     },
     shutdown: requestStop,
     isPaused: () => paused,
-  });
+  };
+  let telegramKey = "";
+  let poller: AbortController | null = null;
+  const syncTelegram = (): void => {
+    const key = JSON.stringify(config.telegram);
+    if (key === telegramKey) return;
+    telegramKey = key;
+    notifier = makeTelegramNotifier(config.telegram, log);
+    poller?.abort();
+    poller = null;
+    if (once || !config.telegram.enabled) return;
+    const current = new AbortController();
+    poller = current;
+    telegramAbort.signal.addEventListener("abort", () => current.abort(), { once: true });
+    void makeTelegramSettingsController(config, log, settings, fetch, controls).start(current.signal);
+  };
+  syncTelegram();
   process.on("SIGINT", requestStop);
   process.on("SIGTERM", requestStop);
-  if (!once) void telegramSettings.start(telegramAbort.signal);
 
   const dwellRef = await Effect.runPromise(Ref.make({ binId: -1, ticks: 0 }));
 
-  const runCycle = async (): Promise<{ halt: boolean }> => {
+  let failedLinkKey: string | null = null;
+  const refresh = async (): Promise<void> => {
     envReloader.check();
+    config = settings.currentConfig();
+    applyLogLevel();
+    syncTelegram();
+    const key = linkKey(config);
+    if (key === link.key || key === failedLinkKey) return;
+    try {
+      const nextOwner = loadKeypair(config.wallet);
+      const nextChain = await makeChain(config.rpcUrl, config.poolAddress, nextOwner.publicKey);
+      link = { key, owner: nextOwner, chain: nextChain };
+      failedLinkKey = null;
+      await Effect.runPromise(Ref.set(dwellRef, { binId: -1, ticks: 0 }));
+      log.warn("connection settings changed; reconnected. Positions in the previous pool or wallet are no longer managed", {
+        pool: config.poolAddress,
+        owner: nextOwner.publicKey.toBase58(),
+      });
+      await telegram.notify({ _tag: "reconnected", pool: config.poolAddress, owner: nextOwner.publicKey.toBase58() });
+    } catch (error) {
+      failedLinkKey = key;
+      const message = error instanceof Error ? error.message : String(error);
+      log.error("reconnect failed; keeping the previous connection", { error: message });
+      await telegram.notify({ _tag: "cycle-error", message: `Reconnect failed, keeping the previous connection: ${message}` });
+    }
+  };
+
+  const runCycle = async (): Promise<{ halt: boolean }> => {
     const cycleConfig = configForRuntime(config, settings.snapshot().runtime);
     const policy = policyOf(cycleConfig);
     const actContext: ActContext = {
-      chain,
+      chain: link.chain,
       config: cycleConfig,
       stateDir: cycleConfig.stateDir,
-      connection: chain.connection,
-      owner,
+      connection: link.chain.connection,
+      owner: link.owner,
       dryRun: cycleConfig.dryRun || !cycleConfig.live,
       priorityFeeMicroLamports: cycleConfig.priorityFeeMicroLamports,
       maxPriorityFeeMicroLamports: cycleConfig.maxPriorityFeeMicroLamports,
       log,
     };
-    const snapshot = await observe(chain);
+    const snapshot = await observe(link.chain);
     const dwell = await Effect.runPromise(
       Ref.updateAndGet(dwellRef, (state) =>
         state.binId === snapshot.pool.activeBin
@@ -229,7 +292,10 @@ const main = async (): Promise<number> => {
 
   const loop: Effect.Effect<void> = Effect.gen(function* () {
     if (stop) return;
-    yield* Effect.tryPromise({ try: async () => (paused ? { halt: false } : runCycle()), catch: (error) => error }).pipe(
+    yield* Effect.tryPromise({ try: async () => {
+        await refresh();
+        return paused ? { halt: false } : runCycle();
+      }, catch: (error) => error }).pipe(
       Effect.catchAllCause((cause) =>
         Effect.promise(async (): Promise<{ halt: boolean }> => {
           const message = Cause.pretty(cause);

@@ -3,10 +3,6 @@ import { parse } from "dotenv";
 import { parseConfig, type Config, type Env } from "./config.js";
 import type { Logger } from "./log.js";
 
-// Fields that are wired into long-lived objects at startup (RPC connection, wallet,
-// Telegram poller, logger), so a changed .env value only takes effect after a restart.
-const restartFields = ["rpcUrl", "wsUrl", "poolAddress", "wallet", "stateDir", "logLevel", "telegram"] as const;
-
 const readFile = (path: string): Record<string, string> | null => {
   try {
     return parse(readFileSync(path, "utf8"));
@@ -28,7 +24,6 @@ export type EnvReloader = Readonly<{ check(): void }>;
 export const makeEnvReloader = (
   path: string,
   initialEnv: Env,
-  initial: Config,
   apply: (next: Config) => readonly string[],
   log: Logger,
 ): EnvReloader => {
@@ -37,7 +32,6 @@ export const makeEnvReloader = (
   const startupFile = readFile(path) ?? {};
   const fileOwned = new Set(Object.keys(startupFile).filter((key) => initialEnv[key] === startupFile[key]));
   let lastMtime = mtimeOf(path);
-  let current = initial;
 
   const check = (): void => {
     const mtime = mtimeOf(path);
@@ -65,13 +59,8 @@ export const makeEnvReloader = (
     }
     fileOwned.clear();
     for (const key of next) fileOwned.add(key);
-    const needsRestart = restartFields.filter((field) => JSON.stringify(current[field]) !== JSON.stringify(parsed.config[field]));
     const changed = apply(parsed.config);
-    current = parsed.config;
     log.info(".env reloaded", { applied: changed });
-    if (needsRestart.length > 0) {
-      log.warn("some .env changes need a restart to take effect", { fields: needsRestart });
-    }
   };
   return { check };
 };
