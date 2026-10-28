@@ -56,7 +56,7 @@ describe("settings store", () => {
     expect((await store.set("minSolReserve", "0.0000000001")).ok).toBe(false);
   });
 
-  it("requires explicit live confirmation and tracks restart-only differences", async () => {
+  it("requires explicit live confirmation and applies connection settings live", async () => {
     const { store } = make();
     expect((await store.set("mode", "live")).ok).toBe(false);
     const enabled = await store.set("mode", "live", true);
@@ -64,7 +64,7 @@ describe("settings store", () => {
     expect(store.currentConfig().live).toBe(true);
     const result = await store.set("poolAddress", "11111111111111111111111111111111");
     expect(result.ok).toBe(true);
-    expect(store.snapshot().pendingRestart).toContain("poolAddress");
+    expect(store.currentConfig().poolAddress).toBe("11111111111111111111111111111111");
   });
 
   it("resets persisted changes to environment defaults", async () => {
@@ -72,7 +72,6 @@ describe("settings store", () => {
     await store.set("pollIntervalMs", "8000");
     await store.reset();
     expect(store.currentConfig().pollIntervalMs).toBe(4_000);
-    expect(store.snapshot().pendingRestart).toEqual([]);
   });
 
   it("does not publish an update when persistence fails", async () => {

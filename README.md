@@ -120,7 +120,7 @@ the open transaction and unwraps it when the position closes.
 - The bot writes decisions and transaction results to `state/journal.jsonl`.
 - Optional Telegram messages report startup, completed position actions, halts, and cycle
   failures. In the authorized private chat, `/settings` opens category pages for strategy,
-  limits, fees, timing, mode, and restart-required configuration. `/status` shows current
+  limits, fees, timing, mode, and connection configuration. `/status` shows current
   values and when each change takes effect.
 
 `MAX_SNAPSHOT_AGE_MS` does not detect a slow RPC response reliably. The snapshot
@@ -154,11 +154,21 @@ the bot user.
 To enable Telegram messages, create a bot with `@BotFather`, send it a message, and set
 `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. Keep the bot token private. The
 bot accepts commands only from the private chat whose ID matches `TELEGRAM_CHAT_ID`.
-Settings are saved in `runtime-settings.json` inside `STATE_DIR`. Runtime changes apply
-on the next cycle. Pool address, wallet keypair path, log level, and Telegram timeout are
-saved as pending restart changes. Private wallet keys, RPC/WS URLs, Telegram token/chat ID,
-and `STATE_DIR` remain environment-only. Enabling live trading requires a separate
-confirmation. Live transactions can move funds.
+Settings are saved in `runtime-settings.json` inside `STATE_DIR`. Every change applies
+on the next cycle, with no restart (for example no `pm2 restart`).
+
+The bot also watches `.env`. Save the file and the new values are read at the start of the
+next cycle: strategy, limits, fees, timing, mode, pool address, wallet, `RPC_URL`/`WS_URL`,
+log level, Telegram token/chat ID/timeout, and `STATE_DIR`. An invalid `.env` is ignored and
+the previous values stay active (the reason is logged). When both `.env` and Telegram change
+the same setting, the most recent edit wins. Variables set in the shell still take priority
+over `.env`.
+
+When the pool, wallet, or RPC URL changes, the bot reconnects between cycles and resets its
+dwell counter. If the reconnect fails, it keeps the previous connection and reports the
+error. Positions left in the previous pool or wallet are no longer managed, so close them
+first. Private wallet keys can only be set through `.env`. Enabling live trading requires a
+separate confirmation. Live transactions can move funds.
 
 `bun run probe` only needs an RPC URL. Other modes build transactions and need a wallet
 with SOL for fees and rent. Dry-run does not remove that requirement.

@@ -15,7 +15,6 @@ export type SettingKey = keyof RuntimeSettings | "poolAddress" | "walletKeypairP
 export type SettingsSnapshot = Readonly<{
   runtime: RuntimeSettings;
   restart: Readonly<{ poolAddress: string; walletKeypairPath: string; logLevel: Config["logLevel"]; telegramTimeoutMs: number }>;
-  pendingRestart: readonly SettingKey[];
 }>;
 export type SettingsUpdateResult =
   | { readonly ok: true; readonly snapshot: SettingsSnapshot }
@@ -34,30 +33,34 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const safeError = (error: unknown): string => error instanceof Error ? error.name : "unknown error";
 
 export const makeSettingsStore = (config: Config, log: Logger): SettingsStore => {
-  const path = join(config.stateDir, "runtime-settings.json");
   let base = config;
-  const initialRestart = {
-    poolAddress: config.poolAddress,
-    walletKeypairPath: config.wallet.kind === "file" ? config.wallet.path : "environment wallet",
-    logLevel: config.logLevel,
-    telegramTimeoutMs: config.telegram.enabled ? config.telegram.timeoutMs : 3_000,
+  let stateDir = config.stateDir;
+  const pathOf = (): string => join(stateDir, "runtime-settings.json");
+  const restartDefaults = () => ({
+    poolAddress: base.poolAddress,
+    walletKeypairPath: base.wallet.kind === "file" ? base.wallet.path : "environment wallet",
+    logLevel: base.logLevel,
+    telegramTimeoutMs: base.telegram.enabled ? base.telegram.timeoutMs : 3_000,
+  });
+  const load = (): Record<string, unknown> => {
+    try {
+      const data: unknown = JSON.parse(readFileSync(pathOf(), "utf8"));
+      if (isRecord(data) && data.version === 1 && Number.isInteger(data.pollIntervalMs) && typeof data.pollIntervalMs === "number" && data.pollIntervalMs >= 500 && data.pollIntervalMs <= 120_000) {
+        return { pollIntervalMs: data.pollIntervalMs };
+      } else if (isRecord(data) && data.version === 2 && isRecord(data.values)) {
+        return validateStored(data.values, base);
+      } else log.warn("Runtime settings file is invalid; using configured defaults");
+    } catch (error) {
+      if (!(isRecord(error) && error.code === "ENOENT")) log.warn("Runtime settings could not be read; using configured defaults", { error: safeError(error) });
+    }
+    return {};
   };
-  let values: Record<string, unknown> = {};
-  try {
-    const data: unknown = JSON.parse(readFileSync(path, "utf8"));
-    if (isRecord(data) && data.version === 1 && Number.isInteger(data.pollIntervalMs) && typeof data.pollIntervalMs === "number" && data.pollIntervalMs >= 500 && data.pollIntervalMs <= 120_000) {
-      values = { pollIntervalMs: data.pollIntervalMs };
-    } else if (isRecord(data) && data.version === 2 && isRecord(data.values)) {
-      values = validateStored(data.values, base);
-    } else log.warn("Runtime settings file is invalid; using configured defaults");
-  } catch (error) {
-    if (!(isRecord(error) && error.code === "ENOENT")) log.warn("Runtime settings could not be read; using configured defaults", { error: safeError(error) });
-  }
+  let values: Record<string, unknown> = load();
 
   const makeConfig = (): Config => {
     const v = values;
     const mode = typeof v.mode === "string" ? v.mode : base.live && !base.dryRun ? "live" : "dry-run";
-    const restart = { ...initialRestart, ...v };
+    const restart = { ...restartDefaults(), ...v };
     const wallet = typeof restart.walletKeypairPath === "string" && restart.walletKeypairPath !== "environment wallet"
       ? { kind: "file" as const, path: restart.walletKeypairPath }
       : base.wallet;
@@ -89,12 +92,12 @@ export const makeSettingsStore = (config: Config, log: Logger): SettingsStore =>
       maxRebalancesPerHour: c.maxRebalancesPerHour, minRebalanceIntervalMs: c.minRebalanceIntervalMs,
       maxSnapshotAgeMs: c.maxSnapshotAgeMs, mode: c.live && !c.dryRun ? "live" : "dry-run",
     };
-    const restart = { ...initialRestart, ...values };
-    const pendingRestart = restartKeys.filter((key) => restart[key] !== initialRestart[key]);
-    return { runtime, restart: restart as SettingsSnapshot["restart"], pendingRestart };
+    const restart = { ...restartDefaults(), ...values };
+    return { runtime, restart: restart as SettingsSnapshot["restart"] };
   };
   const persist = (next: Record<string, unknown>): void => {
-    mkdirSync(config.stateDir, { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
+    const path = pathOf();
     const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
     try {
       writeFileSync(temp, `${JSON.stringify({ version: 2, values: serialize(next) }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
@@ -108,11 +111,22 @@ export const makeSettingsStore = (config: Config, log: Logger): SettingsStore =>
   // drops its stored override, so the newest edit wins over older Telegram changes.
   const rebase = (next: Config): readonly SettingKey[] => {
     const modeOf = (c: Config): string => c.live && !c.dryRun ? "live" : "dry-run";
-    const changed = runtimeKeys.filter((key) => key === "mode" ? modeOf(base) !== modeOf(next) : base[key] !== next[key]);
+    const before = restartDefaults();
+    const previous = base;
     base = next;
+    const after = restartDefaults();
+    const changed: SettingKey[] = [
+      ...runtimeKeys.filter((key) => key === "mode" ? modeOf(previous) !== modeOf(next) : previous[key] !== next[key]),
+      ...restartKeys.filter((key) => before[key] !== after[key]),
+    ];
+    if (next.stateDir !== stateDir) {
+      stateDir = next.stateDir;
+      values = load();
+      return changed;
+    }
     const overridden = changed.filter((key) => key in values);
     if (overridden.length === 0) return changed;
-    const kept = Object.fromEntries(Object.entries(values).filter(([key]) => !overridden.includes(key as typeof runtimeKeys[number])));
+    const kept = Object.fromEntries(Object.entries(values).filter(([key]) => !overridden.includes(key as SettingKey)));
     try {
       persist(kept);
       values = kept;
@@ -140,7 +154,8 @@ export const makeSettingsStore = (config: Config, log: Logger): SettingsStore =>
     }
   };
   return { currentConfig: makeConfig, snapshot, set, rebase, reset: async () => {
-    mkdirSync(config.stateDir, { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
+    const path = pathOf();
     const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(temp, "{\"version\":2,\"values\":{}}\n", { encoding: "utf8", flag: "wx" });
     renameSync(temp, path);
